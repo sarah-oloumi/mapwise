@@ -37,7 +37,7 @@ const NewsPage = () => {
 
         try {
           console.log(`Searching for news in ${city}`);
-          const searchResponse = await fetch('/api/search', {
+          const searchResponse = await fetch('/api/tavily/search', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -65,7 +65,7 @@ const NewsPage = () => {
           const articlesWithFullContent = await Promise.all(
             searchData.results.map(async (article: any) => {
               try {
-                const extractResponse = await fetch('/api/extract', {
+                const extractResponse = await fetch('/api/tavily/extract', {
                   method: 'POST',
                   headers: {
                     'Content-Type': 'application/json',

@@ -7,8 +7,10 @@ require('dotenv').config({ path: '.env' });
 const app = express();
 const PORT = process.env.PORT || 3001;
 const GOOGLE_PLACES_KEY = process.env.VITE_GOOGLE_MAPS_API_KEY;
+const TAVILY_API_KEY = process.env.VITE_TAVILY_API_KEY;
 
 app.use(cors());
+app.use(express.json()); // Middleware to parse JSON bodies
 
 app.get('/api/nearby', async (req, res) => {
   const { lat, lng, type, pagetoken } = req.query;
@@ -64,6 +66,35 @@ app.get('/api/photo', (req, res) => {
   request.on('error', (err) => {
     console.error('Initial photo proxy error:', err);
     res.status(500).send('Failed to fetch photo');
+  });
+});
+
+// Proxy for Tavily Search API
+app.post('/api/tavily/search', async (req, res) => {
+  if (!TAVILY_API_KEY) {
+    return res.status(500).json({ error: 'Tavily API key not configured on server' });
+  }
+  try {
+    const apiRes = await fetch('https://api.tavily.com/search', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${TAVILY_API_KEY}`,
+      },
+      body: JSON.stringify(req.body),
+    });
+    const data = await apiRes.json();
+    res.status(apiRes.status).json(data);
+  } catch (e) {
+    res.status(500).json({ error: 'Failed to fetch from Tavily Search API', details: e.message });
+  }
+});
+
+// Proxy for Tavily Extract API
+app.post('/api/tavily/extract', async (req, res) => {
+  res.status(501).json({ 
+    error: 'Not Implemented', 
+    message: 'The Tavily API does not have a dedicated /extract endpoint. To get article content, please set "include_raw_content": true in your /api/tavily/search request body and remove the second fetch call.' 
   });
 });
 
