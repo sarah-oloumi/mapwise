@@ -6,6 +6,7 @@ import Map from "@/components/Map";
 const MainPage = () => {
   const [isRecording, setIsRecording] = useState(false);
   const [lastResponse, setLastResponse] = useState<string>("");
+  
 
   const handleStartRecording = () => {
     setIsRecording(true);
