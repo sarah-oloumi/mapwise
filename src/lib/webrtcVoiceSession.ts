@@ -270,6 +270,21 @@ export class WebRTCVoiceSession {
 
         case "get_place_details": {
           const { place_id } = functionArgs;
+          console.log(
+            "🏢 [FRONTEND] get_place_details called with place_id:",
+            place_id
+          );
+          console.log("🔍 [FRONTEND] place_id type:", typeof place_id);
+          console.log(
+            "🔍 [FRONTEND] place_id value:",
+            JSON.stringify(place_id)
+          );
+
+          if (!place_id || place_id === "undefined") {
+            console.error("❌ [FRONTEND] Invalid place_id:", place_id);
+            throw new Error("Place ID is required and cannot be undefined");
+          }
+
           result = await this.getPlaceDetails(place_id as string);
           break;
         }
@@ -297,6 +312,14 @@ export class WebRTCVoiceSession {
           output: JSON.stringify(result),
         },
       };
+
+      console.log("📤 [FRONTEND] Sending function result to AI:");
+      console.log("🔧 Function:", functionName);
+      console.log("🆔 Call ID:", callId);
+      console.log(
+        "📊 Result preview:",
+        JSON.stringify(result, null, 2).substring(0, 500) + "..."
+      );
 
       this.sendClientEvent(functionResult);
       this.sendClientEvent({ type: "response.create" });
