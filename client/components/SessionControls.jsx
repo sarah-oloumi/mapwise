@@ -2,7 +2,7 @@ import { useState } from "react";
 import { CloudLightning, CloudOff, MessageSquare } from "react-feather";
 import Button from "./Button";
 
-function SessionStopped({ startSession }) {
+function SessionStopped({ startSession, userLocation }) {
   const [isActivating, setIsActivating] = useState(false);
 
   function handleStartSession() {
@@ -12,15 +12,40 @@ function SessionStopped({ startSession }) {
     startSession();
   }
 
+  const hasLocation =
+    userLocation && userLocation.latitude && userLocation.longitude;
+
   return (
     <div className="flex items-center justify-center w-full h-full">
-      <Button
-        onClick={handleStartSession}
-        className={isActivating ? "bg-gray-600" : "bg-red-600"}
-        icon={<CloudLightning height={16} />}
-      >
-        {isActivating ? "starting session..." : "start session"}
-      </Button>
+      <div className="flex flex-col items-center gap-2">
+        {!hasLocation && (
+          <div className="text-sm text-gray-500 text-center">
+            📍 Waiting for location access...
+            <br />
+            <span className="text-xs">
+              Please allow location to use the Canadian AI assistant, eh!
+            </span>
+          </div>
+        )}
+        <Button
+          onClick={handleStartSession}
+          className={
+            isActivating
+              ? "bg-gray-600"
+              : hasLocation
+              ? "bg-red-600"
+              : "bg-gray-400 cursor-not-allowed"
+          }
+          icon={<CloudLightning height={16} />}
+          disabled={!hasLocation}
+        >
+          {isActivating
+            ? "starting session..."
+            : hasLocation
+            ? "start session"
+            : "waiting for location..."}
+        </Button>
+      </div>
     </div>
   );
 }
@@ -72,6 +97,7 @@ export default function SessionControls({
   sendTextMessage,
   serverEvents,
   isSessionActive,
+  userLocation,
 }) {
   return (
     <div className="flex gap-4 border-t-2 border-gray-200 h-full rounded-md">
@@ -83,7 +109,10 @@ export default function SessionControls({
           serverEvents={serverEvents}
         />
       ) : (
-        <SessionStopped startSession={startSession} />
+        <SessionStopped
+          startSession={startSession}
+          userLocation={userLocation}
+        />
       )}
     </div>
   );

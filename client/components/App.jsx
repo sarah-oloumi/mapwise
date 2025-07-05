@@ -95,8 +95,25 @@ export default function App() {
   }, []);
 
   async function startSession() {
-    // Get a session token for OpenAI Realtime API
-    const tokenResponse = await fetch("/token");
+    // Ensure we have user location before starting session
+    if (!userLocation) {
+      console.log("⏳ Waiting for user location...");
+      alert(
+        "Please allow location access to use the Canadian AI assistant, eh!",
+      );
+      return;
+    }
+
+    // Get a session token for OpenAI Realtime API with location context
+    const tokenResponse = await fetch("/token", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        userLocation: userLocation,
+      }),
+    });
     const data = await tokenResponse.json();
     const EPHEMERAL_KEY = data.client_secret.value;
 
@@ -165,13 +182,31 @@ export default function App() {
 
   // Handle Google Maps function calls
   async function handleFunctionCall(functionName, functionArgs, callId) {
+    console.log("🔧 [FRONTEND] Handling function call:", functionName);
+    console.log("📋 [FRONTEND] Function arguments:", functionArgs);
+    console.log("🆔 [FRONTEND] Call ID:", callId);
+
     try {
       let result;
 
       switch (functionName) {
         case "search_places":
           const { query, location, radius } = functionArgs;
+          console.log("🔍 [FRONTEND] Search parameters:", {
+            query,
+            location,
+            radius,
+          });
+
+          // Validate query parameter
+          if (!query || query === "undefined") {
+            console.error("❌ [FRONTEND] Invalid query parameter:", query);
+            throw new Error("Search query is required and cannot be undefined");
+          }
+
           const searchLocation = location || userLocation;
+          console.log("📍 [FRONTEND] Using location:", searchLocation);
+
           result = await mapsService.current.searchPlaces(
             query,
             searchLocation,
@@ -294,13 +329,16 @@ export default function App() {
           event.timestamp = new Date().toLocaleTimeString();
         }
 
+        // Log all events for debugging
+        console.log("📨 [FRONTEND] Received event:", event.type, event);
+
         // Handle different types of function call events from the AI
         if (event.type === "response.function_call_arguments.done") {
           const functionName = event.name;
           const functionArgs = JSON.parse(event.arguments);
           const callId = event.call_id;
 
-          console.log(`AI is calling function: ${functionName}`, functionArgs);
+          console.log(`🤖 [AI] Function call: ${functionName}`, functionArgs);
           handleFunctionCall(functionName, functionArgs, callId);
         }
         // Also handle the case where function calls are in conversation items
@@ -313,7 +351,7 @@ export default function App() {
           const callId = event.item.call_id;
 
           console.log(
-            `AI is calling function via conversation item: ${functionName}`,
+            `🤖 [AI] Function call via conversation item: ${functionName}`,
             functionArgs,
           );
           handleFunctionCall(functionName, functionArgs, callId);
@@ -328,7 +366,7 @@ export default function App() {
           const callId = event.item.call_id;
 
           console.log(
-            `AI is calling function via output item: ${functionName}`,
+            `🤖 [AI] Function call via output item: ${functionName}`,
             functionArgs,
           );
           handleFunctionCall(functionName, functionArgs, callId);
@@ -341,15 +379,9 @@ export default function App() {
       dataChannel.addEventListener("open", () => {
         setIsSessionActive(true);
         setEvents([]);
-
-        // Send initial greeting if user location is available
-        if (userLocation) {
-          setTimeout(() => {
-            sendTextMessage(
-              `Hey there! I'm your friendly Canadian AI assistant, eh! I can help you find great places around your location. What kind of place are you looking for, bud?`,
-            );
-          }, 1000);
-        }
+        console.log(
+          "🇨🇦 [SESSION] Canadian AI assistant is ready with location context!",
+        );
       });
     }
   }, [dataChannel, userLocation]);
@@ -381,6 +413,7 @@ export default function App() {
               sendTextMessage={sendTextMessage}
               events={events}
               isSessionActive={isSessionActive}
+              userLocation={userLocation}
             />
           </section>
         </section>

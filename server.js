@@ -339,7 +339,7 @@ app.use(vite.middlewares);
 app.use(express.json());
 
 // Logging middleware for Google Maps API endpoints
-app.use("/api/mcp-gmaps/*", (req, res, next) => {
+app.use("/api/mcp-gmaps", (req, res, next) => {
   const timestamp = new Date().toISOString();
   console.log(`\n⏰ [${timestamp}] ${req.method} ${req.path}`);
   console.log(`🌍 User-Agent: ${req.get("User-Agent") || "Unknown"}`);
@@ -361,6 +361,15 @@ app.get("/api/mcp-gmaps/search", async (req, res) => {
     }
 
     const { query, location, radius = 5000 } = req.query;
+
+    // Validate query parameter
+    if (!query || query === "undefined" || query.trim() === "") {
+      console.error("❌ [VALIDATION] Invalid query parameter:", query);
+      return res.status(400).json({
+        error: "Search query is required and cannot be undefined or empty",
+        received_query: query,
+      });
+    }
 
     let searchLocation = null;
     if (location) {
@@ -514,8 +523,67 @@ app.get("/api/mcp-gmaps/geocode", async (req, res) => {
 });
 
 // API route for token generation with Canadian AI configuration
-app.get("/token", async (req, res) => {
+app.post("/token", async (req, res) => {
   try {
+    const { userLocation } = req.body;
+
+    // Create location-aware instructions
+    let locationAwarePrompt = CANADIAN_AI_PROMPT;
+
+    if (userLocation) {
+      console.log(
+        "🌍 [SESSION] Starting session with user location:",
+        userLocation,
+      );
+
+      // Add location context to the prompt
+      locationAwarePrompt += `\n\nIMPORTANT: The user is currently located at coordinates ${userLocation.latitude}, ${userLocation.longitude}. When they ask for places "near me" or "nearby", use these exact coordinates as the location parameter in your search_places function calls. You already know their location, so don't ask them for it again.`;
+
+      // Try to get the user's city/area name for more natural conversation
+      try {
+        const geocodeResponse = await fetch(
+          `https://maps.googleapis.com/maps/api/geocode/json?latlng=${userLocation.latitude},${userLocation.longitude}&key=${googleMapsApiKey}`,
+        );
+        const geocodeData = await geocodeResponse.json();
+
+        if (geocodeData.status === "OK" && geocodeData.results.length > 0) {
+          const address = geocodeData.results[0].formatted_address;
+          const addressComponents = geocodeData.results[0].address_components;
+
+          // Extract city and province/state
+          const city = addressComponents.find((comp) =>
+            comp.types.includes("locality"),
+          )?.long_name;
+          const province = addressComponents.find((comp) =>
+            comp.types.includes("administrative_area_level_1"),
+          )?.long_name;
+          const country = addressComponents.find((comp) =>
+            comp.types.includes("country"),
+          )?.long_name;
+
+          let locationDescription = address;
+          if (city && province) {
+            locationDescription = `${city}, ${province}`;
+            if (country) locationDescription += `, ${country}`;
+          }
+
+          console.log(
+            "📍 [SESSION] User location resolved to:",
+            locationDescription,
+          );
+
+          locationAwarePrompt += `\n\nThe user is located in ${locationDescription}. You can reference this location naturally in conversation (e.g., "Here in ${city}" or "Around ${locationDescription}").`;
+        }
+      } catch (geocodeError) {
+        console.warn(
+          "⚠️ [SESSION] Could not geocode user location:",
+          geocodeError.message,
+        );
+      }
+    } else {
+      console.warn("⚠️ [SESSION] Starting session without user location");
+    }
+
     const response = await fetch(
       "https://api.openai.com/v1/realtime/sessions",
       {
@@ -527,7 +595,7 @@ app.get("/token", async (req, res) => {
         body: JSON.stringify({
           model: "gpt-4o-realtime-preview-2024-12-17",
           voice: "alloy",
-          instructions: CANADIAN_AI_PROMPT,
+          instructions: locationAwarePrompt,
           modalities: ["text", "audio"],
           tools: GOOGLE_MAPS_TOOLS,
           tool_choice: "auto",
