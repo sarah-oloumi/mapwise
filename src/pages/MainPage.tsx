@@ -1,27 +1,32 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import VoiceButton from "@/components/VoiceButton";
+import { WebRTCVoiceSession, getUserLocation } from "@/lib/webrtcVoiceSession";
 import { Search } from "lucide-react";
 import Map from "@/components/Map";
 
 const MainPage = () => {
-  const [isRecording, setIsRecording] = useState(false);
+  const [isSessionActive, setIsSessionActive] = useState(false);
   const [lastResponse, setLastResponse] = useState<string>("");
+  const sessionRef = useRef<WebRTCVoiceSession | null>(null);
 
-  const handleStartRecording = () => {
-    setIsRecording(true);
-    // TODO: Implement voice recording with Whisper API
-    console.log("Started recording...");
+  const handleStartSession = async () => {
+    if (sessionRef.current && sessionRef.current.isActive()) return;
+    sessionRef.current = new WebRTCVoiceSession(
+      () => setIsSessionActive(true),
+      () => setIsSessionActive(false),
+      (err) => {
+        setIsSessionActive(false);
+        setLastResponse("Error starting voice session: " + err.message);
+      }
+    );
+    await sessionRef.current.startSession();
   };
 
-  const handleStopRecording = () => {
-    setIsRecording(false);
-    // TODO: Process recording and get AI response
-    console.log("Stopped recording...");
-    
-    // Mock response for now
-    setTimeout(() => {
-      setLastResponse("The building north of you is Central Library, a historic landmark built in 1928.");
-    }, 1000);
+  const handleStopSession = () => {
+    if (sessionRef.current) {
+      sessionRef.current.stopSession();
+      setIsSessionActive(false);
+    }
   };
 
   return (
@@ -50,9 +55,9 @@ const MainPage = () => {
       <div className="p-6 bg-card border-t border-border">
         <div className="flex flex-col items-center space-y-4">
           <VoiceButton
-            onStartRecording={handleStartRecording}
-            onStopRecording={handleStopRecording}
-            isRecording={isRecording}
+            onStartRecording={handleStartSession}
+            onStopRecording={handleStopSession}
+            isRecording={isSessionActive}
           />
           <div className="text-center">
             <p className="text-sm font-medium text-foreground">Ask about your surroundings</p>
