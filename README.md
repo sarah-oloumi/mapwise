@@ -17,27 +17,29 @@ Mapwise is a web application that enables users to search for nearby places usin
 5. **Result Feedback:** The app uses text-to-speech to read the result back to the user.
 
 ## Requirements
+- Node.js & npm installed ([install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating))
 - OpenAI API Key (for transcription and intent extraction)
 - Google Maps API Key (for place search)
 
-## Setup
-1. Clone the repository:
-   ```sh
-   git clone <repo-url>
-   cd mapwise
-   ```
-2. Install dependencies:
-   ```sh
-   # Example for Node.js projects
-   npm install
-   ```
-3. Configure your API keys (see `.env.example` or configuration section).
-4. Start the application:
-   ```sh
-   npm start
-   ```
+## How to Run the App
 
-## Usage
+Follow these steps:
+
+```sh
+# Step 1: Clone the repository using the project's Git URL.
+git clone <YOUR_GIT_URL>
+
+# Step 2: Navigate to the project directory.
+cd <YOUR_PROJECT_NAME>
+
+# Step 3: Install the necessary dependencies.
+npm i
+
+# Step 4: Start the development server with auto-reloading and an instant preview.
+npm run dev
+```
+
+Configure your API keys as needed (see `.env.example` or configuration section).
 - Press the microphone button and speak your query.
 - Wait for the app to process and present the results.
 - Listen as the app reads the results back to you.
