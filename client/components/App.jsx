@@ -4,12 +4,95 @@ import EventLog from "./EventLog";
 import SessionControls from "./SessionControls";
 import ToolPanel from "./ToolPanel";
 
+// Google Maps MCP integration service
+class GoogleMapsMCPService {
+  constructor() {
+    this.baseUrl = "/api/mcp-gmaps";
+  }
+
+  async searchPlaces(query, location = null, radius = 5000) {
+    const params = new URLSearchParams({
+      query,
+      radius: radius.toString(),
+    });
+
+    if (location) {
+      params.append("location", `${location.latitude},${location.longitude}`);
+    }
+
+    const response = await fetch(`${this.baseUrl}/search?${params}`);
+    if (!response.ok) {
+      throw new Error(`Places search failed: ${response.statusText}`);
+    }
+    return response.json();
+  }
+
+  async getPlaceDetails(placeId) {
+    const response = await fetch(`${this.baseUrl}/details/${placeId}`);
+    if (!response.ok) {
+      throw new Error(`Place details failed: ${response.statusText}`);
+    }
+    return response.json();
+  }
+
+  async getDirections(origin, destination, mode = "driving") {
+    const params = new URLSearchParams({
+      origin,
+      destination,
+      mode,
+    });
+
+    const response = await fetch(`${this.baseUrl}/directions?${params}`);
+    if (!response.ok) {
+      throw new Error(`Directions failed: ${response.statusText}`);
+    }
+    return response.json();
+  }
+
+  async geocodeAddress(address = null, latitude = null, longitude = null) {
+    const params = new URLSearchParams();
+
+    if (address) {
+      params.append("address", address);
+    } else if (latitude && longitude) {
+      params.append("lat", latitude.toString());
+      params.append("lng", longitude.toString());
+    }
+
+    const response = await fetch(`${this.baseUrl}/geocode?${params}`);
+    if (!response.ok) {
+      throw new Error(`Geocoding failed: ${response.statusText}`);
+    }
+    return response.json();
+  }
+}
+
 export default function App() {
   const [isSessionActive, setIsSessionActive] = useState(false);
   const [events, setEvents] = useState([]);
   const [dataChannel, setDataChannel] = useState(null);
+  const [userLocation, setUserLocation] = useState(null);
   const peerConnection = useRef(null);
   const audioElement = useRef(null);
+  const mapsService = useRef(new GoogleMapsMCPService());
+
+  // Get user's location on component mount
+  useEffect(() => {
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          setUserLocation({
+            latitude: position.coords.latitude,
+            longitude: position.coords.longitude,
+          });
+          console.log("User location obtained:", position.coords);
+        },
+        (error) => {
+          console.warn("Could not get user location:", error);
+        },
+      );
+    }
+  }, []);
 
   async function startSession() {
     // Get a session token for OpenAI Realtime API
@@ -80,6 +163,85 @@ export default function App() {
     peerConnection.current = null;
   }
 
+  // Handle Google Maps function calls
+  async function handleFunctionCall(functionName, functionArgs, callId) {
+    try {
+      let result;
+
+      switch (functionName) {
+        case "search_places":
+          const { query, location, radius } = functionArgs;
+          const searchLocation = location || userLocation;
+          result = await mapsService.current.searchPlaces(
+            query,
+            searchLocation,
+            radius,
+          );
+          break;
+
+        case "get_place_details":
+          const { place_id } = functionArgs;
+          result = await mapsService.current.getPlaceDetails(place_id);
+          break;
+
+        case "get_directions":
+          const { origin, destination, mode } = functionArgs;
+          result = await mapsService.current.getDirections(
+            origin,
+            destination,
+            mode,
+          );
+          break;
+
+        case "geocode_address":
+          const { address, latitude, longitude } = functionArgs;
+          result = await mapsService.current.geocodeAddress(
+            address,
+            latitude,
+            longitude,
+          );
+          break;
+
+        default:
+          throw new Error(`Unknown function: ${functionName}`);
+      }
+
+      // Send function result back to the AI
+      const functionResult = {
+        type: "conversation.item.create",
+        item: {
+          type: "function_call_output",
+          call_id: callId,
+          output: JSON.stringify(result),
+        },
+      };
+
+      sendClientEvent(functionResult);
+
+      // Request a new response from the AI
+      sendClientEvent({ type: "response.create" });
+    } catch (error) {
+      console.error(`Error executing function ${functionName}:`, error);
+
+      // Send error back to the AI
+      const errorResult = {
+        type: "conversation.item.create",
+        item: {
+          type: "function_call_output",
+          call_id: callId,
+          output: JSON.stringify({
+            error: error.message,
+            message:
+              "Sorry bud, I couldn't get that information right now. Maybe try again, eh?",
+          }),
+        },
+      };
+
+      sendClientEvent(errorResult);
+      sendClientEvent({ type: "response.create" });
+    }
+  }
+
   // Send a message to the model
   function sendClientEvent(message) {
     if (dataChannel) {
@@ -132,6 +294,46 @@ export default function App() {
           event.timestamp = new Date().toLocaleTimeString();
         }
 
+        // Handle different types of function call events from the AI
+        if (event.type === "response.function_call_arguments.done") {
+          const functionName = event.name;
+          const functionArgs = JSON.parse(event.arguments);
+          const callId = event.call_id;
+
+          console.log(`AI is calling function: ${functionName}`, functionArgs);
+          handleFunctionCall(functionName, functionArgs, callId);
+        }
+        // Also handle the case where function calls are in conversation items
+        else if (
+          event.type === "conversation.item.created" &&
+          event.item?.type === "function_call"
+        ) {
+          const functionName = event.item.name;
+          const functionArgs = JSON.parse(event.item.arguments || "{}");
+          const callId = event.item.call_id;
+
+          console.log(
+            `AI is calling function via conversation item: ${functionName}`,
+            functionArgs,
+          );
+          handleFunctionCall(functionName, functionArgs, callId);
+        }
+        // Handle response output items that contain function calls
+        else if (
+          event.type === "response.output_item.added" &&
+          event.item?.type === "function_call"
+        ) {
+          const functionName = event.item.name;
+          const functionArgs = JSON.parse(event.item.arguments || "{}");
+          const callId = event.item.call_id;
+
+          console.log(
+            `AI is calling function via output item: ${functionName}`,
+            functionArgs,
+          );
+          handleFunctionCall(functionName, functionArgs, callId);
+        }
+
         setEvents((prev) => [event, ...prev]);
       });
 
@@ -139,16 +341,31 @@ export default function App() {
       dataChannel.addEventListener("open", () => {
         setIsSessionActive(true);
         setEvents([]);
+
+        // Send initial greeting if user location is available
+        if (userLocation) {
+          setTimeout(() => {
+            sendTextMessage(
+              `Hey there! I'm your friendly Canadian AI assistant, eh! I can help you find great places around your location. What kind of place are you looking for, bud?`,
+            );
+          }, 1000);
+        }
       });
     }
-  }, [dataChannel]);
+  }, [dataChannel, userLocation]);
 
   return (
     <>
       <nav className="absolute top-0 left-0 right-0 h-16 flex items-center">
         <div className="flex items-center gap-4 w-full m-4 pb-2 border-0 border-b border-solid border-gray-200">
           <img style={{ width: "24px" }} src={logo} />
-          <h1>realtime console</h1>
+          <h1>Canadian AI Places Assistant 🇨🇦</h1>
+          {userLocation && (
+            <span className="text-sm text-gray-500">
+              📍 Location: {userLocation.latitude.toFixed(4)},{" "}
+              {userLocation.longitude.toFixed(4)}
+            </span>
+          )}
         </div>
       </nav>
       <main className="absolute top-16 left-0 right-0 bottom-0">
@@ -173,6 +390,7 @@ export default function App() {
             sendTextMessage={sendTextMessage}
             events={events}
             isSessionActive={isSessionActive}
+            userLocation={userLocation}
           />
         </section>
       </main>
