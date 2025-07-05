@@ -45,6 +45,11 @@ Mapwise is a web application that enables users to search for nearby places usin
 ## License
 MIT
 
+## Development
+.env.example
+```
+VITE_GOOGLE_MAPS_API_KEY=YOUR_API_KEY_HERE
+```
 ---
 
 *Powered by OpenAI and Google Maps APIs.*
