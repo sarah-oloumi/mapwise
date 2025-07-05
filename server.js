@@ -101,6 +101,7 @@ async function startServer() {
 
   // --- API Endpoints ---
   app.get("/api/mcp-gmaps/search", async (req, res) => {
+  console.log(`[API] GET /api/mcp-gmaps/search`, req.query);
   try {
     if (!googleMapsService) return res.status(500).json({ error: "Google Maps API key not configured" });
     const { query, location, radius = 5000 } = req.query;
@@ -117,6 +118,7 @@ async function startServer() {
 });
 
 app.get("/api/mcp-gmaps/details/:placeId", async (req, res) => {
+  console.log(`[API] GET /api/mcp-gmaps/details/${req.params.placeId}`);
   try {
     if (!googleMapsService) return res.status(500).json({ error: "Google Maps API key not configured" });
     const { placeId } = req.params;
@@ -128,6 +130,7 @@ app.get("/api/mcp-gmaps/details/:placeId", async (req, res) => {
 });
 
 app.get("/api/mcp-gmaps/directions", async (req, res) => {
+  console.log(`[API] GET /api/mcp-gmaps/directions`, req.query);
   try {
     if (!googleMapsService) return res.status(500).json({ error: "Google Maps API key not configured" });
     const { origin, destination, mode = "driving" } = req.query;
@@ -139,6 +142,7 @@ app.get("/api/mcp-gmaps/directions", async (req, res) => {
 });
 
 app.get("/api/mcp-gmaps/geocode", async (req, res) => {
+  console.log(`[API] GET /api/mcp-gmaps/geocode`, req.query);
   try {
     if (!googleMapsService) return res.status(500).json({ error: "Google Maps API key not configured" });
     const { address, lat, lng } = req.query;
@@ -150,6 +154,7 @@ app.get("/api/mcp-gmaps/geocode", async (req, res) => {
 });
 
 app.get("/token", async (req, res) => {
+  console.log(`[API] GET /token`);
   try {
     const response = await fetch("https://api.openai.com/v1/realtime/sessions", {
       method: "POST",
