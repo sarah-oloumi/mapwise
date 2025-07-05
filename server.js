@@ -137,6 +137,7 @@ class GoogleMapsService {
   constructor(apiKey) {
     this.apiKey = apiKey;
     this.baseUrl = "https://maps.googleapis.com/maps/api";
+    console.log("🗺️ GoogleMapsService initialized with API key");
   }
 
   async searchPlaces(query, location = null, radius = 5000) {
@@ -152,14 +153,31 @@ class GoogleMapsService {
       url.searchParams.append("radius", radius.toString());
     }
 
+    console.log("🌐 [GOOGLE MAPS API] Calling Places Text Search API");
+    console.log(
+      "📡 URL:",
+      url.toString().replace(this.apiKey, "***API_KEY***"),
+    );
+
     const response = await fetch(url.toString());
     const data = await response.json();
 
+    console.log("📨 [GOOGLE MAPS API] Response status:", data.status);
     if (data.status !== "OK") {
+      console.error(
+        "❌ [GOOGLE MAPS API] Error:",
+        data.error_message || data.status,
+      );
       throw new Error(
         `Places search failed: ${data.error_message || data.status}`,
       );
     }
+
+    console.log(
+      "✅ [GOOGLE MAPS API] Successfully found",
+      data.results.length,
+      "places",
+    );
 
     return {
       places: data.results.map((place) => ({
@@ -178,14 +196,30 @@ class GoogleMapsService {
     url.searchParams.append("place_id", placeId);
     url.searchParams.append("key", this.apiKey);
 
+    console.log("🌐 [GOOGLE MAPS API] Calling Place Details API");
+    console.log(
+      "📡 URL:",
+      url.toString().replace(this.apiKey, "***API_KEY***"),
+    );
+
     const response = await fetch(url.toString());
     const data = await response.json();
 
+    console.log("📨 [GOOGLE MAPS API] Response status:", data.status);
     if (data.status !== "OK") {
+      console.error(
+        "❌ [GOOGLE MAPS API] Error:",
+        data.error_message || data.status,
+      );
       throw new Error(
         `Place details failed: ${data.error_message || data.status}`,
       );
     }
+
+    console.log(
+      "✅ [GOOGLE MAPS API] Successfully got details for:",
+      data.result.name,
+    );
 
     return {
       name: data.result.name,
@@ -206,14 +240,31 @@ class GoogleMapsService {
     url.searchParams.append("mode", mode);
     url.searchParams.append("key", this.apiKey);
 
+    console.log("🌐 [GOOGLE MAPS API] Calling Directions API");
+    console.log(
+      "📡 URL:",
+      url.toString().replace(this.apiKey, "***API_KEY***"),
+    );
+
     const response = await fetch(url.toString());
     const data = await response.json();
 
+    console.log("📨 [GOOGLE MAPS API] Response status:", data.status);
     if (data.status !== "OK") {
+      console.error(
+        "❌ [GOOGLE MAPS API] Error:",
+        data.error_message || data.status,
+      );
       throw new Error(
         `Directions failed: ${data.error_message || data.status}`,
       );
     }
+
+    console.log(
+      "✅ [GOOGLE MAPS API] Successfully got",
+      data.routes.length,
+      "route(s)",
+    );
 
     return {
       routes: data.routes.map((route) => ({
@@ -241,12 +292,28 @@ class GoogleMapsService {
 
     url.searchParams.append("key", this.apiKey);
 
+    console.log("🌐 [GOOGLE MAPS API] Calling Geocoding API");
+    console.log(
+      "📡 URL:",
+      url.toString().replace(this.apiKey, "***API_KEY***"),
+    );
+
     const response = await fetch(url.toString());
     const data = await response.json();
 
+    console.log("📨 [GOOGLE MAPS API] Response status:", data.status);
     if (data.status !== "OK") {
+      console.error(
+        "❌ [GOOGLE MAPS API] Error:",
+        data.error_message || data.status,
+      );
       throw new Error(`Geocoding failed: ${data.error_message || data.status}`);
     }
+
+    console.log(
+      "✅ [GOOGLE MAPS API] Successfully geocoded to:",
+      data.results[0].formatted_address,
+    );
 
     return {
       location: data.results[0].geometry.location,
@@ -271,10 +338,23 @@ app.use(vite.middlewares);
 // Parse JSON bodies
 app.use(express.json());
 
+// Logging middleware for Google Maps API endpoints
+app.use("/api/mcp-gmaps/*", (req, res, next) => {
+  const timestamp = new Date().toISOString();
+  console.log(`\n⏰ [${timestamp}] ${req.method} ${req.path}`);
+  console.log(`🌍 User-Agent: ${req.get("User-Agent") || "Unknown"}`);
+  console.log(`📨 Origin: ${req.get("Origin") || "Direct"}`);
+  next();
+});
+
 // Google Maps API endpoints
 app.get("/api/mcp-gmaps/search", async (req, res) => {
+  console.log("🔍 [FUNCTION CALL] search_places requested");
+  console.log("📝 Query parameters:", req.query);
+
   try {
     if (!googleMapsService) {
+      console.error("❌ Google Maps API key not configured");
       return res
         .status(500)
         .json({ error: "Google Maps API key not configured" });
@@ -289,75 +369,146 @@ app.get("/api/mcp-gmaps/search", async (req, res) => {
         latitude: parseFloat(lat),
         longitude: parseFloat(lng),
       };
+      console.log("📍 Search location:", searchLocation);
     }
+
+    console.log(`🔎 Searching for: "${query}" with radius: ${radius}m`);
 
     const result = await googleMapsService.searchPlaces(
       query,
       searchLocation,
       parseInt(radius),
     );
+
+    console.log(
+      `✅ [FUNCTION RESPONSE] search_places found ${result.places.length} places:`,
+    );
+    result.places.forEach((place, index) => {
+      console.log(
+        `   ${index + 1}. ${place.name} (${place.rating || "No rating"}) - ${
+          place.formatted_address
+        }`,
+      );
+    });
+
     res.json(result);
   } catch (error) {
-    console.error("Places search error:", error);
+    console.error("❌ [FUNCTION ERROR] Places search error:", error.message);
     res.status(500).json({ error: error.message });
   }
 });
 
 app.get("/api/mcp-gmaps/details/:placeId", async (req, res) => {
+  console.log("🏢 [FUNCTION CALL] get_place_details requested");
+  console.log("📝 Place ID:", req.params.placeId);
+
   try {
     if (!googleMapsService) {
+      console.error("❌ Google Maps API key not configured");
       return res
         .status(500)
         .json({ error: "Google Maps API key not configured" });
     }
 
     const { placeId } = req.params;
+    console.log(`🔍 Getting details for place: ${placeId}`);
+
     const result = await googleMapsService.getPlaceDetails(placeId);
+
+    console.log(`✅ [FUNCTION RESPONSE] get_place_details for: ${result.name}`);
+    console.log(`   📍 Address: ${result.formatted_address}`);
+    console.log(`   ⭐ Rating: ${result.rating || "No rating"}`);
+    console.log(`   📞 Phone: ${result.formatted_phone_number || "No phone"}`);
+    console.log(`   🌐 Website: ${result.website || "No website"}`);
+    if (result.opening_hours) {
+      console.log(
+        `   🕐 Open now: ${result.opening_hours.open_now ? "Yes" : "No"}`,
+      );
+    }
+
     res.json(result);
   } catch (error) {
-    console.error("Place details error:", error);
+    console.error("❌ [FUNCTION ERROR] Place details error:", error.message);
     res.status(500).json({ error: error.message });
   }
 });
 
 app.get("/api/mcp-gmaps/directions", async (req, res) => {
+  console.log("🗺️ [FUNCTION CALL] get_directions requested");
+  console.log("📝 Query parameters:", req.query);
+
   try {
     if (!googleMapsService) {
+      console.error("❌ Google Maps API key not configured");
       return res
         .status(500)
         .json({ error: "Google Maps API key not configured" });
     }
 
     const { origin, destination, mode = "driving" } = req.query;
+    console.log(
+      `🚗 Getting directions from "${origin}" to "${destination}" via ${mode}`,
+    );
+
     const result = await googleMapsService.getDirections(
       origin,
       destination,
       mode,
     );
+
+    console.log(
+      `✅ [FUNCTION RESPONSE] get_directions found ${result.routes.length} route(s):`,
+    );
+    result.routes.forEach((route, index) => {
+      console.log(`   Route ${index + 1}: ${route.summary}`);
+      console.log(`   📏 Distance: ${route.distance.text}`);
+      console.log(`   ⏱️ Duration: ${route.duration.text}`);
+      console.log(`   📋 Steps: ${route.steps.length} steps`);
+    });
+
     res.json(result);
   } catch (error) {
-    console.error("Directions error:", error);
+    console.error("❌ [FUNCTION ERROR] Directions error:", error.message);
     res.status(500).json({ error: error.message });
   }
 });
 
 app.get("/api/mcp-gmaps/geocode", async (req, res) => {
+  console.log("📍 [FUNCTION CALL] geocode_address requested");
+  console.log("📝 Query parameters:", req.query);
+
   try {
     if (!googleMapsService) {
+      console.error("❌ Google Maps API key not configured");
       return res
         .status(500)
         .json({ error: "Google Maps API key not configured" });
     }
 
     const { address, lat, lng } = req.query;
+
+    if (address) {
+      console.log(`🔍 Geocoding address: "${address}"`);
+    } else if (lat && lng) {
+      console.log(`🔍 Reverse geocoding coordinates: ${lat}, ${lng}`);
+    }
+
     const result = await googleMapsService.geocodeAddress(
       address,
       lat ? parseFloat(lat) : null,
       lng ? parseFloat(lng) : null,
     );
+
+    console.log(`✅ [FUNCTION RESPONSE] geocode_address result:`);
+    console.log(
+      `   📍 Location: ${result.location.lat}, ${result.location.lng}`,
+    );
+    console.log(`   📮 Address: ${result.formatted_address}`);
+    console.log(`   🆔 Place ID: ${result.place_id}`);
+
     res.json(result);
   } catch (error) {
-    console.error("Geocoding error:", error);
+    console.error("❌ [FUNCTION ERROR] Geocoding error:", error.message);
     res.status(500).json({ error: error.message });
   }
 });
@@ -419,15 +570,48 @@ app.use("*", async (req, res, next) => {
 });
 
 app.listen(port, () => {
-  console.log(`Express server running on *:${port}`);
+  console.log("🍁 ================================");
+  console.log("🇨🇦 Canadian AI Places Assistant");
+  console.log("🍁 ================================");
+  console.log(`🚀 Express server running on http://localhost:${port}`);
   console.log(
-    `Canadian AI Voice Assistant with Google Maps integration ready, eh!`,
+    `🎤 OpenAI Realtime API: ${
+      apiKey ? "✅ Configured" : "❌ Missing API key"
+    }`,
   );
-  if (!googleMapsApiKey) {
-    console.warn(
-      "⚠️  GOOGLE_MAPS_API_KEY not found in environment variables. Google Maps features will be disabled.",
+  console.log(
+    `🗺️  Google Maps API: ${
+      googleMapsApiKey ? "✅ Configured" : "❌ Missing API key"
+    }`,
+  );
+
+  if (!apiKey) {
+    console.error("⚠️  OPENAI_API_KEY not found in environment variables.");
+    console.error(
+      "   Please add it to your .env file to use the voice assistant.",
     );
-  } else {
-    console.log("🗺️  Google Maps API integration enabled");
   }
+
+  if (!googleMapsApiKey) {
+    console.error(
+      "⚠️  GOOGLE_MAPS_API_KEY not found in environment variables.",
+    );
+    console.error("   Google Maps features will be disabled.");
+    console.error("   Please add it to your .env file and enable these APIs:");
+    console.error("   - Places API");
+    console.error("   - Geocoding API");
+    console.error("   - Directions API");
+  } else {
+    console.log("🛠️  Available functions:");
+    console.log(
+      "   🔍 search_places - Find restaurants, attractions, businesses",
+    );
+    console.log("   🏢 get_place_details - Get reviews, hours, contact info");
+    console.log("   🗺️  get_directions - Turn-by-turn directions");
+    console.log("   📍 geocode_address - Address to coordinates conversion");
+  }
+
+  console.log("🍁 ================================");
+  console.log("Ready to help, eh! 🇨🇦");
+  console.log("🍁 ================================");
 });

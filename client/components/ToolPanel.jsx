@@ -51,6 +51,7 @@ export default function ToolPanel({
       if (latestEvent.item?.content?.[0]?.type === "function_call_output") {
         try {
           const output = JSON.parse(latestEvent.item.content[0].output);
+          console.log("Model output:", output);
           if (output.places && Array.isArray(output.places)) {
             setPlacesFound(output.places.slice(0, 5)); // Keep top 5 places
           }
