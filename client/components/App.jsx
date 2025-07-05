@@ -72,6 +72,7 @@ export default function App() {
   const [events, setEvents] = useState([]);
   const [dataChannel, setDataChannel] = useState(null);
   const [userLocation, setUserLocation] = useState(null);
+  const [locationInfo, setLocationInfo] = useState(null);
   const peerConnection = useRef(null);
   const audioElement = useRef(null);
   const mapsService = useRef(new GoogleMapsMCPService());
@@ -116,6 +117,10 @@ export default function App() {
     });
     const data = await tokenResponse.json();
     const EPHEMERAL_KEY = data.client_secret.value;
+
+    // Store the resolved location info for the greeting
+    setLocationInfo(data.locationInfo);
+    console.log("📍 [SESSION] Location info received:", data.locationInfo);
 
     // Create a peer connection
     const pc = new RTCPeerConnection();
@@ -382,9 +387,37 @@ export default function App() {
         console.log(
           "🇨🇦 [SESSION] Canadian AI assistant is ready with location context!",
         );
+
+        // Send a greeting message with location context
+        if (userLocation) {
+          setTimeout(() => {
+            let locationText = "";
+            if (locationInfo && locationInfo.city && locationInfo.province) {
+              locationText = `in ${locationInfo.city}, ${locationInfo.province}`;
+              if (locationInfo.country && locationInfo.country !== "Canada") {
+                locationText += `, ${locationInfo.country}`;
+              }
+            } else if (locationInfo && locationInfo.fullAddress) {
+              locationText = `at ${locationInfo.fullAddress}`;
+            } else {
+              locationText = `around ${userLocation.latitude.toFixed(
+                4,
+              )}, ${userLocation.longitude.toFixed(4)}`;
+            }
+
+            console.log(
+              "🇨🇦 [GREETING] Sending greeting with location:",
+              locationText,
+            );
+
+            sendTextMessage(
+              `Hey there! I'm your friendly Canadian AI assistant, eh! I can see you're located ${locationText}. I'm here to help you find great places nearby - just ask me for restaurants, Tim Hortons, attractions, or anything else you're looking for, bud!`,
+            );
+          }, 1000);
+        }
       });
     }
-  }, [dataChannel, userLocation]);
+  }, [dataChannel, userLocation, locationInfo]);
 
   return (
     <>

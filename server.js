@@ -594,7 +594,7 @@ app.post("/token", async (req, res) => {
         },
         body: JSON.stringify({
           model: "gpt-4o-realtime-preview-2024-12-17",
-          voice: "alloy",
+          voice: "ash",
           instructions: locationAwarePrompt,
           modalities: ["text", "audio"],
           tools: GOOGLE_MAPS_TOOLS,
@@ -611,7 +611,53 @@ app.post("/token", async (req, res) => {
     );
 
     const data = await response.json();
-    res.json(data);
+
+    // Add location info to the response for the greeting
+    let locationInfo = null;
+    if (userLocation) {
+      try {
+        const geocodeResponse = await fetch(
+          `https://maps.googleapis.com/maps/api/geocode/json?latlng=${userLocation.latitude},${userLocation.longitude}&key=${googleMapsApiKey}`,
+        );
+        const geocodeData = await geocodeResponse.json();
+
+        if (geocodeData.status === "OK" && geocodeData.results.length > 0) {
+          const addressComponents = geocodeData.results[0].address_components;
+
+          // Extract city and province/state
+          const city = addressComponents.find((comp) =>
+            comp.types.includes("locality"),
+          )?.long_name;
+          const province = addressComponents.find((comp) =>
+            comp.types.includes("administrative_area_level_1"),
+          )?.long_name;
+          const country = addressComponents.find((comp) =>
+            comp.types.includes("country"),
+          )?.long_name;
+
+          locationInfo = {
+            city: city || null,
+            province: province || null,
+            country: country || null,
+            fullAddress: geocodeData.results[0].formatted_address,
+            coordinates: {
+              latitude: userLocation.latitude,
+              longitude: userLocation.longitude,
+            },
+          };
+        }
+      } catch (geocodeError) {
+        console.warn(
+          "⚠️ [TOKEN] Could not geocode for greeting:",
+          geocodeError.message,
+        );
+      }
+    }
+
+    res.json({
+      ...data,
+      locationInfo: locationInfo,
+    });
   } catch (error) {
     console.error("Token generation error:", error);
     res.status(500).json({ error: "Failed to generate token" });
