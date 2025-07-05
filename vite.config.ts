@@ -9,10 +9,17 @@ export default defineConfig(({ mode }) => ({
     host: "::",
     port: 8080,
     proxy: {
-      '/api': {
-        target: 'https://api.tavily.com',
+      '/token': {
+        target: 'http://localhost:3001',
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api/, ''),
+      },
+      '/api/mcp-gmaps': {
+        target: 'http://localhost:3001',
+        changeOrigin: true,
+      },
+      '/api/tavily': {
+        target: 'http://localhost:3001',
+        changeOrigin: true,
       },
     },
   },

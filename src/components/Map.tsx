@@ -1,12 +1,106 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import {
   APIProvider,
   Map as GoogleMap,
   Marker,
   useMap,
+  useMapsLibrary,
   InfoWindow,
-} from "@vis.gl/react-google-maps";
-import { Plus, Minus } from "lucide-react";
+} from '@vis.gl/react-google-maps';
+import { Plus, Minus } from 'lucide-react';
+
+// A component to render directions and the confirmation card
+const Directions = ({
+  origin,
+  destination,
+  onDeny,
+}: {
+  origin: google.maps.LatLngLiteral;
+  destination: google.maps.LatLngLiteral;
+  onDeny: () => void;
+}) => {
+  const map = useMap();
+  const routesLibrary = useMapsLibrary('routes');
+  const [directionsResult, setDirectionsResult] = useState<google.maps.DirectionsResult | null>(null);
+  const [directionsService, setDirectionsService] = useState<google.maps.DirectionsService | null>(null);
+  const [directionsRenderer, setDirectionsRenderer] = useState<google.maps.DirectionsRenderer | null>(null);
+
+  useEffect(() => {
+    if (!routesLibrary || !map) return;
+    const service = new routesLibrary.DirectionsService();
+    const renderer = new routesLibrary.DirectionsRenderer({ map });
+
+    setDirectionsService(service);
+    setDirectionsRenderer(renderer);
+
+    return () => {
+      renderer.setMap(null);
+    };
+  }, [routesLibrary, map]);
+
+  useEffect(() => {
+    if (!directionsService || !origin || !destination) return;
+
+    directionsService.route(
+      {
+        origin: origin,
+        destination: destination,
+        travelMode: google.maps.TravelMode.DRIVING,
+      },
+      (result, status) => {
+        if (status === google.maps.DirectionsStatus.OK) {
+          setDirectionsResult(result);
+        } else {
+          console.error(`Error fetching directions ${result}`);
+        }
+      }
+    );
+  }, [directionsService, origin, destination]);
+
+  useEffect(() => {
+    if (!directionsRenderer) return;
+    if (directionsResult) {
+      directionsRenderer.setDirections(directionsResult);
+    } else {
+      directionsRenderer.setDirections(null);
+    }
+  }, [directionsRenderer, directionsResult]);
+
+  const handleAccept = () => {
+    const destinationUrl = `${destination.lat},${destination.lng}`;
+    const originUrl = `${origin.lat},${origin.lng}`;
+    const url = `https://www.google.com/maps/dir/?api=1&origin=${originUrl}&destination=${destinationUrl}&travelmode=driving`;
+    window.open(url, '_blank');
+  };
+
+  if (!directionsResult) return null;
+
+  const leg = directionsResult.routes[0].legs[0];
+
+  return (
+    <div className="absolute bottom-24 left-1/2 -translate-x-1/2 w-11/12 max-w-sm bg-card p-4 rounded-xl shadow-lg border border-border z-10">
+      <div className="text-center">
+        <p className="text-lg font-semibold text-foreground">{leg.duration?.text}</p>
+        <p className="text-sm text-muted-foreground">({leg.distance?.text})</p>
+      </div>
+      <div className="flex gap-4 mt-4">
+        <button
+          onClick={onDeny}
+          className="w-full px-4 py-2 bg-secondary text-secondary-foreground rounded-md text-sm font-medium hover:bg-secondary/80 transition-colors"
+        >
+          Deny
+        </button>
+        <button
+          onClick={handleAccept}
+          className="w-full px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:bg-primary/90 transition-colors"
+        >
+          Accept
+        </button>
+      </div>
+    </div>
+  );
+};
 
 // Interface for search result places
 interface SearchResult {
@@ -37,14 +131,14 @@ const ZoomControls = () => {
     if (!map) return;
     const currentZoom = map.getZoom();
     if (currentZoom === undefined) return;
-    map.setZoom(currentZoom - 1);
+    map.setZoom(currentZoom + 1);
   }, [map]);
 
   const handleZoomOut = useCallback(() => {
     if (!map) return;
     const currentZoom = map.getZoom();
     if (currentZoom === undefined) return;
-    map.setZoom(currentZoom + 1);
+    map.setZoom(currentZoom - 1);
   }, [map]);
 
   return (
@@ -60,6 +154,10 @@ const ZoomControls = () => {
 };
 
 const Map = ({ searchResults = [], onMarkerClick }: MapProps) => {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const [route, setRoute] = useState(location.state as { origin: google.maps.LatLngLiteral; destination: google.maps.LatLngLiteral } | null);
+
   const [userLocation, setUserLocation] = useState({
     lat: 51.5072,
     lng: -0.1276,
@@ -70,7 +168,7 @@ const Map = ({ searchResults = [], onMarkerClick }: MapProps) => {
 
   // Get user's location
   useEffect(() => {
-    if (navigator.geolocation) {
+    if (!route && navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         (position) => {
           const newUserLocation = {
@@ -78,14 +176,20 @@ const Map = ({ searchResults = [], onMarkerClick }: MapProps) => {
             lng: position.coords.longitude,
           };
           setUserLocation(newUserLocation);
-          setMapCenter(newUserLocation);
+          if (!route) {
+            setMapCenter(newUserLocation);
+          }
         },
         (error) => {
           console.error("Error getting user location:", error);
         }
       );
     }
-  }, []);
+  }, [route]);
+
+  useEffect(() => {
+    setRoute(location.state as { origin: google.maps.LatLngLiteral; destination: google.maps.LatLngLiteral } | null);
+  }, [location.state]);
 
   // Update map center and zoom when search results change
   useEffect(() => {
@@ -131,6 +235,11 @@ const Map = ({ searchResults = [], onMarkerClick }: MapProps) => {
     }
   };
 
+  const handleDenyRoute = () => {
+    setRoute(null);
+    navigate('.', { replace: true, state: null });
+  };
+
   // Custom icon URLs - using simple URL strings for compatibility
   const userLocationIcon =
     "data:image/svg+xml;charset=UTF-8," +
@@ -153,7 +262,7 @@ const Map = ({ searchResults = [], onMarkerClick }: MapProps) => {
     <APIProvider apiKey={import.meta.env.VITE_GOOGLE_MAPS_API_KEY as string}>
       <div style={{ height: "100%", width: "100%", position: "relative" }}>
         <GoogleMap
-          center={mapCenter}
+          center={route ? route.origin : mapCenter}
           zoom={zoom}
           onZoomChanged={(e) => setZoom(e.detail.zoom)}
           gestureHandling={"greedy"}
@@ -161,14 +270,14 @@ const Map = ({ searchResults = [], onMarkerClick }: MapProps) => {
           mapId="155fbee2be69234e"
         >
           {/* User's current location marker - always at their actual location */}
-          <Marker
+          {!route && <Marker
             position={userLocation}
             title="Your Location"
             icon={userLocationIcon}
-          />
+          />}
 
           {/* Search result markers */}
-          {searchResults.map((result) => (
+          {!route && searchResults.map((result) => (
             <Marker
               key={result.place_id}
               position={result.geometry.location}
@@ -207,6 +316,7 @@ const Map = ({ searchResults = [], onMarkerClick }: MapProps) => {
               </div>
             </InfoWindow>
           )}
+          {route && <Directions origin={route.origin} destination={route.destination} onDeny={handleDenyRoute} />}
         </GoogleMap>
         <ZoomControls />
       </div>
