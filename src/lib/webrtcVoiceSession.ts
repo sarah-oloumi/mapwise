@@ -36,6 +36,7 @@ export class WebRTCVoiceSession {
         "🚀 [SESSION] Starting Canadian AI session at",
         this.sessionStartTime.toISOString()
       );
+
       // Get a session token for OpenAI Realtime API with location context
       const tokenResponse = await fetch("/token", {
         method: "POST",
@@ -48,7 +49,6 @@ export class WebRTCVoiceSession {
       });
       const data = await tokenResponse.json();
       const EPHEMERAL_KEY = data.client_secret.value;
-
       console.log("📍 [SESSION] Location info received:", data.locationInfo);
 
       // Create a peer connection
@@ -365,7 +365,7 @@ export class WebRTCVoiceSession {
 
           result = await this.searchPlaces(
             query as string,
-            searchLocation,
+            searchLocation as { latitude: number; longitude: number } | null,
             radius as number
           );
           break;
@@ -402,6 +402,55 @@ export class WebRTCVoiceSession {
           break;
         }
 
+        case "web_search": {
+          const {
+            query,
+            search_depth,
+            include_images,
+            include_answer,
+            max_results,
+          } = functionArgs;
+          console.log("🌐 [FRONTEND] web_search called with:", {
+            query,
+            search_depth,
+            include_images,
+            include_answer,
+            max_results,
+          });
+
+          if (!query || query === "undefined") {
+            console.error("❌ [FRONTEND] Invalid web search query:", query);
+            throw new Error(
+              "Web search query is required and cannot be undefined"
+            );
+          }
+
+          result = await this.webSearch(
+            query as string,
+            search_depth as string,
+            include_images as boolean,
+            include_answer as boolean,
+            max_results as number
+          );
+          break;
+        }
+
+        case "extract_web_content": {
+          const { urls } = functionArgs;
+          console.log(
+            "📄 [FRONTEND] extract_web_content called with URLs:",
+            urls
+          );
+
+          if (!urls || !Array.isArray(urls) || urls.length === 0) {
+            console.error("❌ [FRONTEND] Invalid URLs for extraction:", urls);
+            throw new Error("URLs array is required and cannot be empty");
+          }
+
+          result = await this.extractWebContent(urls as string[]);
+          break;
+        }
+
         default:
           throw new Error(`Unknown function: ${functionName}`);
       }
@@ -426,7 +475,7 @@ export class WebRTCVoiceSession {
 
       this.sendClientEvent(functionResult);
       this.sendClientEvent({ type: "response.create" });
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error(`Error executing function ${functionName}:`, error);
 
       // Send error back to the AI
@@ -436,7 +485,7 @@ export class WebRTCVoiceSession {
           type: "function_call_output",
           call_id: callId,
           output: JSON.stringify({
-            error: error.message,
+            error: error instanceof Error ? error.message : String(error),
             message:
               "Sorry bud, I couldn't get that information right now. Maybe try again, eh?",
           }),
@@ -491,6 +540,50 @@ export class WebRTCVoiceSession {
     const response = await fetch(`/api/mcp-gmaps/directions?${params}`);
     if (!response.ok) {
       throw new Error(`Directions failed: ${response.statusText}`);
+    }
+    return response.json();
+  }
+
+  private async webSearch(
+    query: string,
+    searchDepth = "basic",
+    includeImages = false,
+    includeAnswer = true,
+    maxResults = 5
+  ) {
+    const response = await fetch("/api/tavily/search", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        query,
+        search_depth: searchDepth,
+        include_images: includeImages,
+        include_answer: includeAnswer,
+        max_results: maxResults,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Web search failed: ${response.statusText}`);
+    }
+    return response.json();
+  }
+
+  private async extractWebContent(urls: string[]) {
+    const response = await fetch("/api/tavily/extract", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        urls,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Web content extraction failed: ${response.statusText}`);
     }
     return response.json();
   }

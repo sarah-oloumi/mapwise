@@ -8,6 +8,7 @@ const app = express();
 const port = 8080;
 const apiKey = process.env.OPENAI_API_KEY;
 const googleMapsApiKey = process.env.GOOGLE_MAPS_API_KEY;
+const tavilyApiKey = process.env.TAVILY_API_KEY;
 
 const CANADIAN_AI_PROMPT = `You are a friendly Canadian AI assistant, eh! Your knowledge cutoff is 2023-10. You're as helpful as a Mountie during a snowstorm and as warm as a fresh cup of Timmy's double-double. When recommending places, you should talk like a true Canadian using authentic Canadian slang and expressions naturally.
 
@@ -73,7 +74,8 @@ Remember:
 - Use Canadian spelling when appropriate (colour, centre, favour)
 
 Speak casually but clearly, like you're chatting over a coffee at Timmy's with a good friend, eh!`;
-const GOOGLE_MAPS_TOOLS = [
+
+const ALL_TOOLS = [
   {
     type: "function",
     name: "search_places",
@@ -143,6 +145,67 @@ const GOOGLE_MAPS_TOOLS = [
         },
       },
       required: ["origin", "destination"],
+    },
+  },
+  {
+    type: "function",
+    name: "web_search",
+    description:
+      "Search the web for current information, news, or any topic using Tavily Search. Perfect for finding up-to-date information beyond your knowledge cutoff.",
+    parameters: {
+      type: "object",
+      properties: {
+        query: {
+          type: "string",
+          description:
+            "Search query for web search (e.g., 'latest news Canada', 'weather Toronto', 'Tim Hortons new menu items 2024')",
+        },
+        search_depth: {
+          type: "string",
+          description: "Search depth for results",
+          enum: ["basic", "advanced"],
+          default: "basic",
+        },
+        include_images: {
+          type: "boolean",
+          description: "Whether to include images in search results",
+          default: false,
+        },
+        include_answer: {
+          type: "boolean",
+          description: "Whether to include AI-generated answer summary",
+          default: true,
+        },
+        max_results: {
+          type: "number",
+          description: "Maximum number of search results to return (1-20)",
+          default: 5,
+          minimum: 1,
+          maximum: 20,
+        },
+      },
+      required: ["query"],
+    },
+  },
+  {
+    type: "function",
+    name: "extract_web_content",
+    description:
+      "Extract and read content from specific web page URLs using Tavily Extract. Useful for getting detailed information from specific websites.",
+    parameters: {
+      type: "object",
+      properties: {
+        urls: {
+          type: "array",
+          items: {
+            type: "string",
+          },
+          description:
+            "Array of URLs to extract content from (e.g., ['https://example.com/article'])",
+          maxItems: 5,
+        },
+      },
+      required: ["urls"],
     },
   },
 ];
@@ -364,6 +427,128 @@ const googleMapsService = googleMapsApiKey
   ? new GoogleMapsService(googleMapsApiKey)
   : null;
 
+// --- Tavily Web Search API integration ---
+class TavilyService {
+  constructor(apiKey) {
+    this.apiKey = apiKey;
+    this.baseUrl = "https://api.tavily.com";
+    console.log("🌐 TavilyService initialized with API key");
+  }
+
+  async search(
+    query,
+    searchDepth = "basic",
+    includeImages = false,
+    includeAnswer = true,
+    maxResults = 5
+  ) {
+    const url = `${this.baseUrl}/search`;
+
+    const requestBody = {
+      api_key: this.apiKey,
+      query: query,
+      search_depth: searchDepth,
+      include_images: includeImages,
+      include_answer: includeAnswer,
+      max_results: maxResults,
+    };
+
+    console.log("🌐 [TAVILY API] Calling Web Search API");
+    console.log("📡 Query:", query);
+    console.log("📊 Parameters:", {
+      searchDepth,
+      includeImages,
+      includeAnswer,
+      maxResults,
+    });
+
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(requestBody),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error("❌ [TAVILY API] Error:", response.status, errorText);
+      throw new Error(`Tavily search failed: ${response.status} ${errorText}`);
+    }
+
+    const data = await response.json();
+    console.log("📨 [TAVILY API] Response received");
+    console.log(
+      "✅ [TAVILY API] Successfully found",
+      data.results?.length || 0,
+      "results"
+    );
+
+    return {
+      query: data.query,
+      answer: data.answer,
+      results:
+        data.results?.map((result) => ({
+          title: result.title,
+          url: result.url,
+          content: result.content,
+          score: result.score,
+          published_date: result.published_date,
+        })) || [],
+      images: data.images || [],
+      response_time: data.response_time,
+    };
+  }
+
+  async extract(urls) {
+    const url = `${this.baseUrl}/extract`;
+
+    const requestBody = {
+      api_key: this.apiKey,
+      urls: urls,
+    };
+
+    console.log("🌐 [TAVILY API] Calling Extract API");
+    console.log("📡 URLs:", urls);
+
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(requestBody),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error("❌ [TAVILY API] Error:", response.status, errorText);
+      throw new Error(`Tavily extract failed: ${response.status} ${errorText}`);
+    }
+
+    const data = await response.json();
+    console.log("📨 [TAVILY API] Extract response received");
+    console.log(
+      "✅ [TAVILY API] Successfully extracted",
+      data.results?.length || 0,
+      "pages"
+    );
+
+    return {
+      results:
+        data.results?.map((result) => ({
+          url: result.url,
+          raw_content: result.raw_content,
+          images: result.images || [],
+          favicon: result.favicon,
+        })) || [],
+      failed_results: data.failed_results || [],
+      response_time: data.response_time,
+    };
+  }
+}
+
+const tavilyService = tavilyApiKey ? new TavilyService(tavilyApiKey) : null;
+
 async function startServer() {
   // --- Vite middleware for React frontend ---
   const vite = await createViteServer({
@@ -519,6 +704,140 @@ async function startServer() {
     }
   });
 
+  // Tavily Web Search API endpoints
+  app.post("/api/tavily/search", async (req, res) => {
+    console.log("🔍 [FUNCTION CALL] web_search requested");
+    console.log("📝 Request body:", req.body);
+
+    try {
+      if (!tavilyService) {
+        console.error("❌ Tavily API key not configured");
+        return res.status(500).json({ error: "Tavily API key not configured" });
+      }
+
+      const {
+        query,
+        search_depth = "basic",
+        include_images = false,
+        include_answer = true,
+        max_results = 5,
+      } = req.body;
+
+      // Validate query parameter
+      if (!query || query.trim() === "") {
+        console.error("❌ [VALIDATION] Invalid query parameter:", query);
+        return res.status(400).json({
+          error: "Search query is required and cannot be empty",
+          received_query: query,
+        });
+      }
+
+      console.log(`🔎 Web searching for: "${query}"`);
+
+      const result = await tavilyService.search(
+        query,
+        search_depth,
+        include_images,
+        include_answer,
+        max_results
+      );
+
+      console.log(
+        `✅ [FUNCTION RESPONSE] web_search found ${result.results.length} results:`
+      );
+      result.results.forEach((result, index) => {
+        console.log(
+          `   ${index + 1}. ${result.title} (Score: ${result.score})`
+        );
+        console.log(`      🔗 URL: ${result.url}`);
+        console.log(
+          `      📄 Content preview: ${result.content.substring(0, 100)}...`
+        );
+      });
+
+      if (result.answer) {
+        console.log(`🤖 [AI ANSWER] ${result.answer.substring(0, 200)}...`);
+      }
+
+      res.json(result);
+    } catch (error) {
+      console.error("❌ [FUNCTION ERROR] Web search error:", error.message);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/tavily/extract", async (req, res) => {
+    console.log("📄 [FUNCTION CALL] extract_web_content requested");
+    console.log("📝 Request body:", req.body);
+
+    try {
+      if (!tavilyService) {
+        console.error("❌ Tavily API key not configured");
+        return res.status(500).json({ error: "Tavily API key not configured" });
+      }
+
+      const { urls } = req.body;
+
+      // Validate URLs parameter
+      if (!urls || !Array.isArray(urls) || urls.length === 0) {
+        console.error("❌ [VALIDATION] Invalid URLs parameter:", urls);
+        return res.status(400).json({
+          error: "URLs array is required and cannot be empty",
+          received_urls: urls,
+        });
+      }
+
+      // Validate URL format
+      const invalidUrls = urls.filter((url) => {
+        try {
+          new URL(url);
+          return false;
+        } catch {
+          return true;
+        }
+      });
+
+      if (invalidUrls.length > 0) {
+        console.error("❌ [VALIDATION] Invalid URL format:", invalidUrls);
+        return res.status(400).json({
+          error: "All URLs must be valid HTTP/HTTPS URLs",
+          invalid_urls: invalidUrls,
+        });
+      }
+
+      console.log(`📄 Extracting content from ${urls.length} URL(s)`);
+
+      const result = await tavilyService.extract(urls);
+
+      console.log(
+        `✅ [FUNCTION RESPONSE] extract_web_content processed ${urls.length} URLs:`
+      );
+      result.results.forEach((result, index) => {
+        console.log(`   ${index + 1}. ${result.url}`);
+        console.log(
+          `      📄 Content length: ${
+            result.raw_content?.length || 0
+          } characters`
+        );
+      });
+
+      if (result.failed_results.length > 0) {
+        console.warn(
+          `⚠️ [EXTRACTION] ${result.failed_results.length} URLs failed to extract:`,
+          result.failed_results
+        );
+      }
+
+      res.json(result);
+    } catch (error) {
+      console.error(
+        "❌ [FUNCTION ERROR] Web content extraction error:",
+        error.message
+      );
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   app.post("/token", async (req, res) => {
     try {
       const { userLocation } = req.body;
@@ -539,7 +858,9 @@ DO NOT USE GEOCODING: You do not need to call the geocode_address function becau
 
 DISTANCE INFORMATION: When you receive search results, each place will include distance_text (like "2.3km" or "500m"), distance_km, and distance_description (Canadian-style descriptions like "just a short rip down the road" or "a quick walk, eh") fields. Use these to make your recommendations more natural and Canadian. For example: "There's a Timmies just 1.2km away - that's just a short rip down the road, bud!" or "I found a beauty restaurant 850m from your location - just a decent walk, eh!"
 
-PLACE DETAILS: Each place in search results has a "place_id" field. To get more details about a specific place (like reviews, hours, phone number), use the get_place_details function with the exact place_id value from the search results. For example, if a place has "place_id": "ChIJPymPWzQEzkwR15R3GGpsnKk", use that exact string when calling get_place_details.`;
+PLACE DETAILS: Each place in search results has a "place_id" field. To get more details about a specific place (like reviews, hours, phone number), use the get_place_details function with the exact place_id value from the search results. For example, if a place has "place_id": "ChIJPymPWzQEzkwR15R3GGpsnKk", use that exact string when calling get_place_details.
+
+WEB SEARCH: You now have access to real-time web search capabilities using the web_search function. Use this to find current information, news, weather, events, or anything beyond your knowledge cutoff. For example, search for "latest news Canada", "weather Toronto today", "Tim Hortons new menu 2024", or "hockey scores today". You can also use extract_web_content to read specific web pages when users share URLs.`;
 
         // Try to get the user's city/area name for more natural conversation
         try {
@@ -599,7 +920,7 @@ PLACE DETAILS: Each place in search results has a "place_id" field. To get more 
             voice: "ash",
             instructions: locationAwarePrompt,
             modalities: ["text", "audio"],
-            tools: GOOGLE_MAPS_TOOLS,
+            tools: ALL_TOOLS,
             tool_choice: "auto",
             temperature: 0.8,
             turn_detection: {
@@ -681,6 +1002,11 @@ PLACE DETAILS: Each place in search results has a "place_id" field. To get more 
         googleMapsApiKey ? "✅ Configured" : "❌ Missing API key"
       }`
     );
+    console.log(
+      `🌐 Tavily Web Search API: ${
+        tavilyApiKey ? "✅ Configured" : "❌ Missing API key"
+      }`
+    );
 
     if (!apiKey) {
       console.error("⚠️  OPENAI_API_KEY not found in environment variables.");
@@ -694,13 +1020,29 @@ PLACE DETAILS: Each place in search results has a "place_id" field. To get more 
         "⚠️  GOOGLE_MAPS_API_KEY not found in environment variables."
       );
       console.error("   Google Maps features will be disabled.");
-    } else {
+    }
+
+    if (!tavilyApiKey) {
+      console.error("⚠️  TAVILY_API_KEY not found in environment variables.");
+      console.error("   Web search features will be disabled.");
+    }
+
+    if (googleMapsService || tavilyService) {
       console.log("🛠️  Available functions:");
       console.log(
         "   🔍 search_places - Find restaurants, attractions, businesses"
       );
       console.log("   🏢 get_place_details - Get reviews, hours, contact info");
       console.log("   🗺️  get_directions - Turn-by-turn directions");
+
+      if (tavilyService) {
+        console.log(
+          "   🌐 web_search - Search the web for current information"
+        );
+        console.log(
+          "   📄 extract_web_content - Extract content from web pages"
+        );
+      }
     }
 
     console.log("🍁 ================================");

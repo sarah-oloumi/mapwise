@@ -160,7 +160,7 @@ const MainPage = () => {
             <h3 className="text-sm font-medium text-foreground mb-3">
               Quick Actions
             </h3>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-3 gap-2">
               <button
                 onClick={() => handleQuickAction("Find Tim Hortons nearby")}
                 className="flex items-center space-x-2 p-2 bg-primary/10 rounded-lg hover:bg-primary/20 transition-colors"
@@ -190,6 +190,24 @@ const MainPage = () => {
               >
                 <Search className="w-4 h-4 text-primary" />
                 <span className="text-sm text-foreground">Explore</span>
+              </button>
+              <button
+                onClick={() =>
+                  handleQuickAction("Search the web for latest news in Canada")
+                }
+                className="flex items-center space-x-2 p-2 bg-blue-500/10 rounded-lg hover:bg-blue-500/20 transition-colors"
+              >
+                <Search className="w-4 h-4 text-blue-500" />
+                <span className="text-sm text-foreground">Web News</span>
+              </button>
+              <button
+                onClick={() =>
+                  handleQuickAction("What's the weather like today?")
+                }
+                className="flex items-center space-x-2 p-2 bg-green-500/10 rounded-lg hover:bg-green-500/20 transition-colors"
+              >
+                <MapPin className="w-4 h-4 text-green-500" />
+                <span className="text-sm text-foreground">Weather</span>
               </button>
             </div>
           </div>
