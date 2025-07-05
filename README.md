@@ -47,6 +47,11 @@ Configure your API keys as needed (see `.env.example` or configuration section).
 ## License
 MIT
 
+## Development
+.env.example
+```
+VITE_GOOGLE_MAPS_API_KEY=YOUR_API_KEY_HERE
+```
 ---
 
 *Powered by OpenAI and Google Maps APIs.*
