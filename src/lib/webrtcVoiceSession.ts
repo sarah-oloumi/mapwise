@@ -10,6 +10,40 @@ interface EventLogCallback {
   (event: SessionEvent): void;
 }
 
+// Interface for search result places
+interface SearchResult {
+  place_id: string;
+  name: string;
+  formatted_address: string;
+  geometry: {
+    location: {
+      lat: number;
+      lng: number;
+    };
+  };
+  rating?: number;
+  types?: string[];
+  business_status?: string;
+}
+
+// Interface for places API response
+interface PlaceApiResponse {
+  place_id: string;
+  name: string;
+  formatted_address: string;
+  location: {
+    lat: number;
+    lng: number;
+  };
+  rating?: number;
+  types?: string[];
+  business_status?: string;
+}
+
+interface SearchResultsCallback {
+  (results: SearchResult[]): void;
+}
+
 // WebRTC Voice Session for Canadian AI Assistant
 export class WebRTCVoiceSession {
   private peerConnection: RTCPeerConnection | null = null;
@@ -23,7 +57,8 @@ export class WebRTCVoiceSession {
     private onSessionStart: () => void,
     private onSessionEnd: () => void,
     private onError: (error: Error) => void,
-    private onEventLog?: EventLogCallback
+    private onEventLog?: EventLogCallback,
+    private onSearchResults?: SearchResultsCallback
   ) {}
 
   async startSession(userLocation?: { latitude: number; longitude: number }) {
@@ -515,7 +550,43 @@ export class WebRTCVoiceSession {
     if (!response.ok) {
       throw new Error(`Places search failed: ${response.statusText}`);
     }
-    return response.json();
+
+    const results = await response.json();
+
+    // Call the search results callback if it exists
+    if (
+      this.onSearchResults &&
+      results.places &&
+      Array.isArray(results.places)
+    ) {
+      console.log(
+        "🗺️ [SESSION] Sending search results to map:",
+        results.places.length
+      );
+
+      // Transform the data structure to match what the Map component expects
+      const transformedResults = results.places.map(
+        (place: PlaceApiResponse) => ({
+          place_id: place.place_id,
+          name: place.name,
+          formatted_address: place.formatted_address,
+          geometry: {
+            location: {
+              lat: place.location.lat,
+              lng: place.location.lng,
+            },
+          },
+          rating: place.rating,
+          types: place.types,
+          business_status: place.business_status,
+        })
+      );
+
+      console.log("🗺️ [SESSION] Transformed results:", transformedResults);
+      this.onSearchResults(transformedResults);
+    }
+
+    return results;
   }
 
   private async getPlaceDetails(placeId: string) {
