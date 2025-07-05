@@ -442,7 +442,22 @@ async function startServer() {
             place.rating || "No rating"
           })${distanceInfo} - ${place.formatted_address}`
         );
+        console.log(`      🆔 Place ID: ${place.place_id}`);
       });
+
+      // Validate that all places have place_id
+      const placesWithoutId = result.places.filter((place) => !place.place_id);
+      if (placesWithoutId.length > 0) {
+        console.warn(
+          `⚠️ [VALIDATION] ${placesWithoutId.length} places missing place_id:`,
+          placesWithoutId
+        );
+      }
+
+      console.log(
+        "📤 [API] Sending search results to frontend:",
+        JSON.stringify(result, null, 2).substring(0, 800) + "..."
+      );
 
       res.json(result);
     } catch (error) {
@@ -522,7 +537,9 @@ async function startServer() {
 
 DO NOT USE GEOCODING: You do not need to call the geocode_address function because you already have the user's location and address information. Only use search_places, get_place_details, and get_directions functions.
 
-DISTANCE INFORMATION: When you receive search results, each place will include distance_text (like "2.3km" or "500m"), distance_km, and distance_description (Canadian-style descriptions like "just a short rip down the road" or "a quick walk, eh") fields. Use these to make your recommendations more natural and Canadian. For example: "There's a Timmies just 1.2km away - that's just a short rip down the road, bud!" or "I found a beauty restaurant 850m from your location - just a decent walk, eh!"`;
+DISTANCE INFORMATION: When you receive search results, each place will include distance_text (like "2.3km" or "500m"), distance_km, and distance_description (Canadian-style descriptions like "just a short rip down the road" or "a quick walk, eh") fields. Use these to make your recommendations more natural and Canadian. For example: "There's a Timmies just 1.2km away - that's just a short rip down the road, bud!" or "I found a beauty restaurant 850m from your location - just a decent walk, eh!"
+
+PLACE DETAILS: Each place in search results has a "place_id" field. To get more details about a specific place (like reviews, hours, phone number), use the get_place_details function with the exact place_id value from the search results. For example, if a place has "place_id": "ChIJPymPWzQEzkwR15R3GGpsnKk", use that exact string when calling get_place_details.`;
 
         // Try to get the user's city/area name for more natural conversation
         try {
