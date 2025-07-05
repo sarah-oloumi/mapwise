@@ -1,0 +1,50 @@
+# Mapwise
+
+Mapwise is a web application that enables users to search for nearby places using their voice. Simply press a button, speak your query (e.g., "Find coffee shops open now"), and let the app handle the rest!
+
+## Features
+- **Voice Query:** Press a button and speak your request.
+- **Speech-to-Text:** Converts your spoken query to text using OpenAI APIs.
+- **Intent Extraction:** Uses OpenAI APIs to understand the intent of your query.
+- **Nearby Search:** Finds relevant places nearby using the Google Maps API.
+- **Text-to-Speech:** Speaks the result back to you for a hands-free experience.
+
+## How It Works
+1. **User Interaction:** Press the button and speak your query.
+2. **Transcription:** The app uses OpenAI's transcription API to convert speech to text.
+3. **Intent Detection:** The transcribed text is sent to OpenAI for intent extraction.
+4. **Place Search:** The app queries the Google Maps API to find and present relevant nearby places.
+5. **Result Feedback:** The app uses text-to-speech to read the result back to the user.
+
+## Requirements
+- OpenAI API Key (for transcription and intent extraction)
+- Google Maps API Key (for place search)
+
+## Setup
+1. Clone the repository:
+   ```sh
+   git clone <repo-url>
+   cd mapwise
+   ```
+2. Install dependencies:
+   ```sh
+   # Example for Node.js projects
+   npm install
+   ```
+3. Configure your API keys (see `.env.example` or configuration section).
+4. Start the application:
+   ```sh
+   npm start
+   ```
+
+## Usage
+- Press the microphone button and speak your query.
+- Wait for the app to process and present the results.
+- Listen as the app reads the results back to you.
+
+## License
+MIT
+
+---
+
+*Powered by OpenAI and Google Maps APIs.*
