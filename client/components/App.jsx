@@ -392,13 +392,17 @@ export default function App() {
         if (userLocation) {
           setTimeout(() => {
             let locationText = "";
-            if (locationInfo && locationInfo.city && locationInfo.province) {
+            if (locationInfo && locationInfo.fullAddress) {
+              locationText = `at ${locationInfo.fullAddress}`;
+            } else if (
+              locationInfo &&
+              locationInfo.city &&
+              locationInfo.province
+            ) {
               locationText = `in ${locationInfo.city}, ${locationInfo.province}`;
               if (locationInfo.country && locationInfo.country !== "Canada") {
                 locationText += `, ${locationInfo.country}`;
               }
-            } else if (locationInfo && locationInfo.fullAddress) {
-              locationText = `at ${locationInfo.fullAddress}`;
             } else {
               locationText = `around ${userLocation.latitude.toFixed(
                 4,

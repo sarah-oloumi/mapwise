@@ -179,16 +179,72 @@ class GoogleMapsService {
       "places",
     );
 
-    return {
-      places: data.results.map((place) => ({
+    // Calculate distances if user location is provided
+    const placesWithDistance = data.results.map((place) => {
+      let distance = null;
+      if (location && place.geometry && place.geometry.location) {
+        distance = this.calculateDistance(
+          location.latitude,
+          location.longitude,
+          place.geometry.location.lat,
+          place.geometry.location.lng,
+        );
+      }
+
+      return {
         name: place.name,
         formatted_address: place.formatted_address,
         location: place.geometry.location,
         place_id: place.place_id,
         rating: place.rating,
         types: place.types,
-      })),
+        distance_km: distance ? parseFloat(distance.toFixed(2)) : null,
+        distance_text: distance ? this.formatDistance(distance) : null,
+      };
+    });
+
+    // Sort by distance if available
+    if (location) {
+      placesWithDistance.sort((a, b) => {
+        if (a.distance_km === null) return 1;
+        if (b.distance_km === null) return -1;
+        return a.distance_km - b.distance_km;
+      });
+    }
+
+    return {
+      places: placesWithDistance,
     };
+  }
+
+  // Calculate distance between two coordinates using Haversine formula
+  calculateDistance(lat1, lon1, lat2, lon2) {
+    const R = 6371; // Earth's radius in kilometers
+    const dLat = this.toRadians(lat2 - lat1);
+    const dLon = this.toRadians(lon2 - lon1);
+    const a =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(this.toRadians(lat1)) *
+        Math.cos(this.toRadians(lat2)) *
+        Math.sin(dLon / 2) *
+        Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
+  }
+
+  toRadians(degrees) {
+    return degrees * (Math.PI / 180);
+  }
+
+  // Format distance in a Canadian-friendly way
+  formatDistance(distanceKm) {
+    if (distanceKm < 1) {
+      return `${Math.round(distanceKm * 1000)}m`;
+    } else if (distanceKm < 10) {
+      return `${distanceKm.toFixed(1)}km`;
+    } else {
+      return `${Math.round(distanceKm)}km`;
+    }
   }
 
   async getPlaceDetails(placeId) {
@@ -393,10 +449,13 @@ app.get("/api/mcp-gmaps/search", async (req, res) => {
       `✅ [FUNCTION RESPONSE] search_places found ${result.places.length} places:`,
     );
     result.places.forEach((place, index) => {
+      const distanceInfo = place.distance_text
+        ? ` - ${place.distance_text} away`
+        : "";
       console.log(
-        `   ${index + 1}. ${place.name} (${place.rating || "No rating"}) - ${
-          place.formatted_address
-        }`,
+        `   ${index + 1}. ${place.name} (${
+          place.rating || "No rating"
+        })${distanceInfo} - ${place.formatted_address}`,
       );
     });
 
@@ -537,7 +596,9 @@ app.post("/token", async (req, res) => {
       );
 
       // Add location context to the prompt
-      locationAwarePrompt += `\n\nIMPORTANT: The user is currently located at coordinates ${userLocation.latitude}, ${userLocation.longitude}. When they ask for places "near me" or "nearby", use these exact coordinates as the location parameter in your search_places function calls. You already know their location, so don't ask them for it again.`;
+      locationAwarePrompt += `\n\nIMPORTANT: The user is currently located at coordinates ${userLocation.latitude}, ${userLocation.longitude}. When they ask for places "near me" or "nearby", use these exact coordinates as the location parameter in your search_places function calls. You already know their location, so don't ask them for it again.
+
+DISTANCE INFORMATION: When you receive search results, each place will include distance_text (like "2.3km" or "500m") and distance_km fields. Always mention the distance when recommending places to help users understand how far they are. For example: "There's a Tim Hortons just 1.2km away" or "I found a great restaurant 850m from your location, eh!"`;
 
       // Try to get the user's city/area name for more natural conversation
       try {
