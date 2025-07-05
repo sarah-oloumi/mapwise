@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useCallback } from 'react';
+import { useLocation } from '@/hooks/useLocation';
 import {
   APIProvider,
   Map as GoogleMap,
@@ -48,34 +49,32 @@ const ZoomControls = () => {
 };
 
 const Map = () => {
-  const [position, setPosition] = useState({ lat: 51.5072, lng: -0.1276 });
+  const { position, error: locationError } = useLocation();
   const [zoom, setZoom] = useState(15);
-
-  useEffect(() => {
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          setPosition({ lat: pos.coords.latitude, lng: pos.coords.longitude });
-        },
-        () => {
-          console.error('Error fetching location.');
-        }
-      );
-    }
-  }, []);
+  const defaultCenter = { lat: 51.5072, lng: -0.1276 }; // Default to London if no position
 
   return (
     <APIProvider apiKey={import.meta.env.VITE_GOOGLE_MAPS_API_KEY as string}>
       <div style={{ height: '100%', width: '100%', position: 'relative' }}>
         <GoogleMap
-          center={position}
+          center={position || defaultCenter}
           zoom={zoom}
           onZoomChanged={(e) => setZoom(e.detail.zoom)}
           gestureHandling={'greedy'}
           disableDefaultUI={true}
           mapId="155fbee2be69234e"
         >
-          <Marker position={position} />
+          {locationError && (
+          <div className="absolute inset-0 flex items-center justify-center bg-background/80">
+            <p className="text-red-500 p-4 bg-card rounded-lg shadow-md">{locationError}</p>
+          </div>
+        )}
+        {!locationError && !position && (
+            <div className="absolute inset-0 flex items-center justify-center bg-background/80">
+                <p className="p-4 bg-card rounded-lg shadow-md">Fetching location...</p>
+            </div>
+        )}
+        {position && <Marker position={position} />}
         </GoogleMap>
         <ZoomControls />
       </div>
