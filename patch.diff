@@ -1,0 +1,1982 @@
+diff --git a/.env.example b/.env.example
+index ed200d4..f2ceca1 100644
+--- a/.env.example
++++ b/.env.example
+@@ -1 +1,13 @@
+-OPENAI_API_KEY="<your-key-here>"
+\ No newline at end of file
++# OpenAI API Key - Required for the Realtime API
++OPENAI_API_KEY=your_openai_api_key_here
++
++# Google Maps API Key - Required for places search functionality
++# Get your API key from: https://console.cloud.google.com/google/maps-apis/
++# Make sure to enable the following APIs:
++# - Places API
++# - Geocoding API
++# - Directions API
++GOOGLE_MAPS_API_KEY=your_google_maps_api_key_here
++
++# Optional: Server port (defaults to 3000)
++PORT=3000
+diff --git a/client/components/App.jsx b/client/components/App.jsx
+index 53e0e92..c200c43 100644
+--- a/client/components/App.jsx
++++ b/client/components/App.jsx
+@@ -72,6 +72,7 @@ export default function App() {
+   const [events, setEvents] = useState([]);
+   const [dataChannel, setDataChannel] = useState(null);
+   const [userLocation, setUserLocation] = useState(null);
++  const [locationInfo, setLocationInfo] = useState(null);
+   const peerConnection = useRef(null);
+   const audioElement = useRef(null);
+   const mapsService = useRef(new GoogleMapsMCPService());
+@@ -95,11 +96,32 @@ export default function App() {
+   }, []);
+ 
+   async function startSession() {
+-    // Get a session token for OpenAI Realtime API
+-    const tokenResponse = await fetch("/token");
++    // Ensure we have user location before starting session
++    if (!userLocation) {
++      console.log("⏳ Waiting for user location...");
++      alert(
++        "Please allow location access to use the Canadian AI assistant, eh!",
++      );
++      return;
++    }
++
++    // Get a session token for OpenAI Realtime API with location context
++    const tokenResponse = await fetch("/token", {
++      method: "POST",
++      headers: {
++        "Content-Type": "application/json",
++      },
++      body: JSON.stringify({
++        userLocation: userLocation,
++      }),
++    });
+     const data = await tokenResponse.json();
+     const EPHEMERAL_KEY = data.client_secret.value;
+ 
++    // Store the resolved location info for the greeting
++    setLocationInfo(data.locationInfo);
++    console.log("📍 [SESSION] Location info received:", data.locationInfo);
++
+     // Create a peer connection
+     const pc = new RTCPeerConnection();
+ 
+@@ -165,13 +187,31 @@ export default function App() {
+ 
+   // Handle Google Maps function calls
+   async function handleFunctionCall(functionName, functionArgs, callId) {
++    console.log("🔧 [FRONTEND] Handling function call:", functionName);
++    console.log("📋 [FRONTEND] Function arguments:", functionArgs);
++    console.log("🆔 [FRONTEND] Call ID:", callId);
++
+     try {
+       let result;
+ 
+       switch (functionName) {
+         case "search_places":
+           const { query, location, radius } = functionArgs;
++          console.log("🔍 [FRONTEND] Search parameters:", {
++            query,
++            location,
++            radius,
++          });
++
++          // Validate query parameter
++          if (!query || query === "undefined") {
++            console.error("❌ [FRONTEND] Invalid query parameter:", query);
++            throw new Error("Search query is required and cannot be undefined");
++          }
++
+           const searchLocation = location || userLocation;
++          console.log("📍 [FRONTEND] Using location:", searchLocation);
++
+           result = await mapsService.current.searchPlaces(
+             query,
+             searchLocation,
+@@ -294,13 +334,16 @@ export default function App() {
+           event.timestamp = new Date().toLocaleTimeString();
+         }
+ 
++        // Log all events for debugging
++        console.log("📨 [FRONTEND] Received event:", event.type, event);
++
+         // Handle different types of function call events from the AI
+         if (event.type === "response.function_call_arguments.done") {
+           const functionName = event.name;
+           const functionArgs = JSON.parse(event.arguments);
+           const callId = event.call_id;
+ 
+-          console.log(`AI is calling function: ${functionName}`, functionArgs);
++          console.log(`🤖 [AI] Function call: ${functionName}`, functionArgs);
+           handleFunctionCall(functionName, functionArgs, callId);
+         }
+         // Also handle the case where function calls are in conversation items
+@@ -313,7 +356,7 @@ export default function App() {
+           const callId = event.item.call_id;
+ 
+           console.log(
+-            `AI is calling function via conversation item: ${functionName}`,
++            `🤖 [AI] Function call via conversation item: ${functionName}`,
+             functionArgs,
+           );
+           handleFunctionCall(functionName, functionArgs, callId);
+@@ -328,7 +371,7 @@ export default function App() {
+           const callId = event.item.call_id;
+ 
+           console.log(
+-            `AI is calling function via output item: ${functionName}`,
++            `🤖 [AI] Function call via output item: ${functionName}`,
+             functionArgs,
+           );
+           handleFunctionCall(functionName, functionArgs, callId);
+@@ -341,18 +384,44 @@ export default function App() {
+       dataChannel.addEventListener("open", () => {
+         setIsSessionActive(true);
+         setEvents([]);
++        console.log(
++          "🇨🇦 [SESSION] Canadian AI assistant is ready with location context!",
++        );
+ 
+-        // Send initial greeting if user location is available
++        // Send a greeting message with location context
+         if (userLocation) {
+           setTimeout(() => {
++            let locationText = "";
++            if (locationInfo && locationInfo.fullAddress) {
++              locationText = `at ${locationInfo.fullAddress}`;
++            } else if (
++              locationInfo &&
++              locationInfo.city &&
++              locationInfo.province
++            ) {
++              locationText = `in ${locationInfo.city}, ${locationInfo.province}`;
++              if (locationInfo.country && locationInfo.country !== "Canada") {
++                locationText += `, ${locationInfo.country}`;
++              }
++            } else {
++              locationText = `around ${userLocation.latitude.toFixed(
++                4,
++              )}, ${userLocation.longitude.toFixed(4)}`;
++            }
++
++            console.log(
++              "🇨🇦 [GREETING] Sending greeting with location:",
++              locationText,
++            );
++
+             sendTextMessage(
+-              `Hey there! I'm your friendly Canadian AI assistant, eh! I can help you find great places around your location. What kind of place are you looking for, bud?`,
++              `Hey there! I'm your friendly Canadian AI assistant, eh! I can see you're located ${locationText}. I'm here to help you find great places nearby - just ask me for restaurants, Tim Hortons, attractions, or anything else you're looking for, bud!`,
+             );
+           }, 1000);
+         }
+       });
+     }
+-  }, [dataChannel, userLocation]);
++  }, [dataChannel, userLocation, locationInfo]);
+ 
+   return (
+     <>
+@@ -381,6 +450,7 @@ export default function App() {
+               sendTextMessage={sendTextMessage}
+               events={events}
+               isSessionActive={isSessionActive}
++              userLocation={userLocation}
+             />
+           </section>
+         </section>
+diff --git a/client/components/Button.jsx b/client/components/Button.jsx
+index 18b5ce3..c2ac647 100644
+--- a/client/components/Button.jsx
++++ b/client/components/Button.jsx
+@@ -1,8 +1,17 @@
+-export default function Button({ icon, children, onClick, className }) {
++export default function Button({
++  icon,
++  children,
++  onClick,
++  className,
++  disabled,
++}) {
+   return (
+     <button
+-      className={`bg-gray-800 text-white rounded-full p-4 flex items-center gap-1 hover:opacity-90 ${className}`}
+-      onClick={onClick}
++      className={`bg-gray-800 text-white rounded-full p-4 flex items-center gap-1 hover:opacity-90 ${className} ${
++        disabled ? "opacity-50 cursor-not-allowed" : ""
++      }`}
++      onClick={disabled ? undefined : onClick}
++      disabled={disabled}
+     >
+       {icon}
+       {children}
+diff --git a/client/components/SessionControls.jsx b/client/components/SessionControls.jsx
+index 2b41c95..d9ed24d 100644
+--- a/client/components/SessionControls.jsx
++++ b/client/components/SessionControls.jsx
+@@ -2,7 +2,7 @@ import { useState } from "react";
+ import { CloudLightning, CloudOff, MessageSquare } from "react-feather";
+ import Button from "./Button";
+ 
+-function SessionStopped({ startSession }) {
++function SessionStopped({ startSession, userLocation }) {
+   const [isActivating, setIsActivating] = useState(false);
+ 
+   function handleStartSession() {
+@@ -12,15 +12,40 @@ function SessionStopped({ startSession }) {
+     startSession();
+   }
+ 
++  const hasLocation =
++    userLocation && userLocation.latitude && userLocation.longitude;
++
+   return (
+     <div className="flex items-center justify-center w-full h-full">
+-      <Button
+-        onClick={handleStartSession}
+-        className={isActivating ? "bg-gray-600" : "bg-red-600"}
+-        icon={<CloudLightning height={16} />}
+-      >
+-        {isActivating ? "starting session..." : "start session"}
+-      </Button>
++      <div className="flex flex-col items-center gap-2">
++        {!hasLocation && (
++          <div className="text-sm text-gray-500 text-center">
++            📍 Waiting for location access...
++            <br />
++            <span className="text-xs">
++              Please allow location to use the Canadian AI assistant, eh!
++            </span>
++          </div>
++        )}
++        <Button
++          onClick={handleStartSession}
++          className={
++            isActivating
++              ? "bg-gray-600"
++              : hasLocation
++              ? "bg-red-600"
++              : "bg-gray-400 cursor-not-allowed"
++          }
++          icon={<CloudLightning height={16} />}
++          disabled={!hasLocation}
++        >
++          {isActivating
++            ? "starting session..."
++            : hasLocation
++            ? "start session"
++            : "waiting for location..."}
++        </Button>
++      </div>
+     </div>
+   );
+ }
+@@ -72,6 +97,7 @@ export default function SessionControls({
+   sendTextMessage,
+   serverEvents,
+   isSessionActive,
++  userLocation,
+ }) {
+   return (
+     <div className="flex gap-4 border-t-2 border-gray-200 h-full rounded-md">
+@@ -83,7 +109,10 @@ export default function SessionControls({
+           serverEvents={serverEvents}
+         />
+       ) : (
+-        <SessionStopped startSession={startSession} />
++        <SessionStopped
++          startSession={startSession}
++          userLocation={userLocation}
++        />
+       )}
+     </div>
+   );
+diff --git a/client/components/ToolPanel.jsx b/client/components/ToolPanel.jsx
+index a8acf5a..0e79012 100644
+--- a/client/components/ToolPanel.jsx
++++ b/client/components/ToolPanel.jsx
+@@ -51,6 +51,7 @@ export default function ToolPanel({
+       if (latestEvent.item?.content?.[0]?.type === "function_call_output") {
+         try {
+           const output = JSON.parse(latestEvent.item.content[0].output);
++          console.log("Model output:", output);
+           if (output.places && Array.isArray(output.places)) {
+             setPlacesFound(output.places.slice(0, 5)); // Keep top 5 places
+           }
+diff --git a/mcp-gmaps/Dockerfile b/mcp-gmaps/Dockerfile
+deleted file mode 100644
+index 3808d7f..0000000
+--- a/mcp-gmaps/Dockerfile
++++ /dev/null
+@@ -1,25 +0,0 @@
+-FROM node:22.12-alpine AS builder
+-
+-# Must be entire project because `prepare` script is run during `npm install` and requires all files.
+-COPY src/google-maps /app
+-COPY tsconfig.json /tsconfig.json
+-
+-WORKDIR /app
+-
+-RUN --mount=type=cache,target=/root/.npm npm install
+-
+-RUN --mount=type=cache,target=/root/.npm-production npm ci --ignore-scripts --omit-dev
+-
+-FROM node:22-alpine AS release
+-
+-COPY --from=builder /app/dist /app/dist
+-COPY --from=builder /app/package.json /app/package.json
+-COPY --from=builder /app/package-lock.json /app/package-lock.json
+-
+-ENV NODE_ENV=production
+-
+-WORKDIR /app
+-
+-RUN npm ci --ignore-scripts --omit-dev
+-
+-ENTRYPOINT ["node", "dist/index.js"]
+\ No newline at end of file
+diff --git a/mcp-gmaps/README.md b/mcp-gmaps/README.md
+deleted file mode 100644
+index 54f0838..0000000
+--- a/mcp-gmaps/README.md
++++ /dev/null
+@@ -1,182 +0,0 @@
+-# Google Maps MCP Server
+-
+-MCP Server for the Google Maps API.
+-
+-## Tools
+-
+-1. `maps_geocode`
+-
+-   - Convert address to coordinates
+-   - Input: `address` (string)
+-   - Returns: location, formatted_address, place_id
+-
+-2. `maps_reverse_geocode`
+-
+-   - Convert coordinates to address
+-   - Inputs:
+-     - `latitude` (number)
+-     - `longitude` (number)
+-   - Returns: formatted_address, place_id, address_components
+-
+-3. `maps_search_places`
+-
+-   - Search for places using text query
+-   - Inputs:
+-     - `query` (string)
+-     - `location` (optional): { latitude: number, longitude: number }
+-     - `radius` (optional): number (meters, max 50000)
+-   - Returns: array of places with names, addresses, locations
+-
+-4. `maps_place_details`
+-
+-   - Get detailed information about a place
+-   - Input: `place_id` (string)
+-   - Returns: name, address, contact info, ratings, reviews, opening hours
+-
+-5. `maps_distance_matrix`
+-
+-   - Calculate distances and times between points
+-   - Inputs:
+-     - `origins` (string[])
+-     - `destinations` (string[])
+-     - `mode` (optional): "driving" | "walking" | "bicycling" | "transit"
+-   - Returns: distances and durations matrix
+-
+-6. `maps_elevation`
+-
+-   - Get elevation data for locations
+-   - Input: `locations` (array of {latitude, longitude})
+-   - Returns: elevation data for each point
+-
+-7. `maps_directions`
+-   - Get directions between points
+-   - Inputs:
+-     - `origin` (string)
+-     - `destination` (string)
+-     - `mode` (optional): "driving" | "walking" | "bicycling" | "transit"
+-   - Returns: route details with steps, distance, duration
+-
+-## Setup
+-
+-### API Key
+-
+-Get a Google Maps API key by following the instructions [here](https://developers.google.com/maps/documentation/javascript/get-api-key#create-api-keys).
+-
+-### Usage with Claude Desktop
+-
+-Add the following to your `claude_desktop_config.json`:
+-
+-#### Docker
+-
+-```json
+-{
+-  "mcpServers": {
+-    "google-maps": {
+-      "command": "docker",
+-      "args": [
+-        "run",
+-        "-i",
+-        "--rm",
+-        "-e",
+-        "GOOGLE_MAPS_API_KEY",
+-        "mcp/google-maps"
+-      ],
+-      "env": {
+-        "GOOGLE_MAPS_API_KEY": "<YOUR_API_KEY>"
+-      }
+-    }
+-  }
+-}
+-```
+-
+-### NPX
+-
+-```json
+-{
+-  "mcpServers": {
+-    "google-maps": {
+-      "command": "npx",
+-      "args": ["-y", "@modelcontextprotocol/server-google-maps"],
+-      "env": {
+-        "GOOGLE_MAPS_API_KEY": "<YOUR_API_KEY>"
+-      }
+-    }
+-  }
+-}
+-```
+-
+-### Usage with VS Code
+-
+-For quick installation, use one of the one-click install buttons below...
+-
+-[![Install with NPX in VS Code](https://img.shields.io/badge/VS_Code-NPM-0098FF?style=flat-square&logo=visualstudiocode&logoColor=white)](https://insiders.vscode.dev/redirect/mcp/install?name=google-maps&inputs=%5B%7B%22type%22%3A%22promptString%22%2C%22id%22%3A%22maps_api_key%22%2C%22description%22%3A%22Google%20Maps%20API%20Key%22%2C%22password%22%3Atrue%7D%5D&config=%7B%22command%22%3A%22npx%22%2C%22args%22%3A%5B%22-y%22%2C%22%40modelcontextprotocol%2Fserver-google-maps%22%5D%2C%22env%22%3A%7B%22GOOGLE_MAPS_API_KEY%22%3A%22%24%7Binput%3Amaps_api_key%7D%22%7D%7D) [![Install with NPX in VS Code Insiders](https://img.shields.io/badge/VS_Code_Insiders-NPM-24bfa5?style=flat-square&logo=visualstudiocode&logoColor=white)](https://insiders.vscode.dev/redirect/mcp/install?name=google-maps&inputs=%5B%7B%22type%22%3A%22promptString%22%2C%22id%22%3A%22maps_api_key%22%2C%22description%22%3A%22Google%20Maps%20API%20Key%22%2C%22password%22%3Atrue%7D%5D&config=%7B%22command%22%3A%22npx%22%2C%22args%22%3A%5B%22-y%22%2C%22%40modelcontextprotocol%2Fserver-google-maps%22%5D%2C%22env%22%3A%7B%22GOOGLE_MAPS_API_KEY%22%3A%22%24%7Binput%3Amaps_api_key%7D%22%7D%7D&quality=insiders)
+-
+-[![Install with Docker in VS Code](https://img.shields.io/badge/VS_Code-Docker-0098FF?style=flat-square&logo=visualstudiocode&logoColor=white)](https://insiders.vscode.dev/redirect/mcp/install?name=google-maps&inputs=%5B%7B%22type%22%3A%22promptString%22%2C%22id%22%3A%22maps_api_key%22%2C%22description%22%3A%22Google%20Maps%20API%20Key%22%2C%22password%22%3Atrue%7D%5D&config=%7B%22command%22%3A%22docker%22%2C%22args%22%3A%5B%22run%22%2C%22-i%22%2C%22--rm%22%2C%22mcp%2Fgoogle-maps%22%5D%2C%22env%22%3A%7B%22GOOGLE_MAPS_API_KEY%22%3A%22%24%7Binput%3Amaps_api_key%7D%22%7D%7D) [![Install with Docker in VS Code Insiders](https://img.shields.io/badge/VS_Code_Insiders-Docker-24bfa5?style=flat-square&logo=visualstudiocode&logoColor=white)](https://insiders.vscode.dev/redirect/mcp/install?name=google-maps&inputs=%5B%7B%22type%22%3A%22promptString%22%2C%22id%22%3A%22maps_api_key%22%2C%22description%22%3A%22Google%20Maps%20API%20Key%22%2C%22password%22%3Atrue%7D%5D&config=%7B%22command%22%3A%22docker%22%2C%22args%22%3A%5B%22run%22%2C%22-i%22%2C%22--rm%22%2C%22mcp%2Fgoogle-maps%22%5D%2C%22env%22%3A%7B%22GOOGLE_MAPS_API_KEY%22%3A%22%24%7Binput%3Amaps_api_key%7D%22%7D%7D&quality=insiders)
+-
+-For manual installation, add the following JSON block to your User Settings (JSON) file in VS Code. You can do this by pressing `Ctrl + Shift + P` and typing `Preferences: Open User Settings (JSON)`.
+-
+-Optionally, you can add it to a file called `.vscode/mcp.json` in your workspace. This will allow you to share the configuration with others.
+-
+-> Note that the `mcp` key is not needed in the `.vscode/mcp.json` file.
+-
+-```json
+-{
+-  "mcp": {
+-    "inputs": [
+-      {
+-        "type": "promptString",
+-        "id": "maps_api_key",
+-        "description": "Google Maps API Key",
+-        "password": true
+-      }
+-    ],
+-    "servers": {
+-      "google-maps": {
+-        "command": "npx",
+-        "args": ["-y", "@modelcontextprotocol/server-google-maps"],
+-        "env": {
+-          "GOOGLE_MAPS_API_KEY": "${input:maps_api_key}"
+-        }
+-      }
+-    }
+-  }
+-}
+-```
+-
+-For Docker installation:
+-
+-```json
+-{
+-  "mcp": {
+-    "inputs": [
+-      {
+-        "type": "promptString",
+-        "id": "maps_api_key",
+-        "description": "Google Maps API Key",
+-        "password": true
+-      }
+-    ],
+-    "servers": {
+-      "google-maps": {
+-        "command": "docker",
+-        "args": ["run", "-i", "--rm", "mcp/google-maps"],
+-        "env": {
+-          "GOOGLE_MAPS_API_KEY": "${input:maps_api_key}"
+-        }
+-      }
+-    }
+-  }
+-}
+-```
+-
+-## Build
+-
+-Docker build:
+-
+-```bash
+-docker build -t mcp/google-maps -f src/google-maps/Dockerfile .
+-```
+-
+-## License
+-
+-This MCP server is licensed under the MIT License. This means you are free to use, modify, and distribute the software, subject to the terms and conditions of the MIT License. For more details, please see the LICENSE file in the project repository.
+diff --git a/mcp-gmaps/index.ts b/mcp-gmaps/index.ts
+deleted file mode 100644
+index 00bf6ea..0000000
+--- a/mcp-gmaps/index.ts
++++ /dev/null
+@@ -1,678 +0,0 @@
+-#!/usr/bin/env node
+-
+-import { Server } from "@modelcontextprotocol/sdk/server/index.js";
+-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+-import {
+-  CallToolRequestSchema,
+-  ListToolsRequestSchema,
+-  Tool,
+-} from "@modelcontextprotocol/sdk/types.js";
+-import fetch from "node-fetch";
+-
+-// Response interfaces
+-interface GoogleMapsResponse {
+-  status: string;
+-  error_message?: string;
+-}
+-
+-interface GeocodeResponse extends GoogleMapsResponse {
+-  results: Array<{
+-    place_id: string;
+-    formatted_address: string;
+-    geometry: {
+-      location: {
+-        lat: number;
+-        lng: number;
+-      }
+-    };
+-    address_components: Array<{
+-      long_name: string;
+-      short_name: string;
+-      types: string[];
+-    }>;
+-  }>;
+-}
+-
+-interface PlacesSearchResponse extends GoogleMapsResponse {
+-  results: Array<{
+-    name: string;
+-    place_id: string;
+-    formatted_address: string;
+-    geometry: {
+-      location: {
+-        lat: number;
+-        lng: number;
+-      }
+-    };
+-    rating?: number;
+-    types: string[];
+-  }>;
+-}
+-
+-interface PlaceDetailsResponse extends GoogleMapsResponse {
+-  result: {
+-    name: string;
+-    place_id: string;
+-    formatted_address: string;
+-    formatted_phone_number?: string;
+-    website?: string;
+-    rating?: number;
+-    reviews?: Array<{
+-      author_name: string;
+-      rating: number;
+-      text: string;
+-      time: number;
+-    }>;
+-    opening_hours?: {
+-      weekday_text: string[];
+-      open_now: boolean;
+-    };
+-    geometry: {
+-      location: {
+-        lat: number;
+-        lng: number;
+-      }
+-    };
+-  };
+-}
+-
+-interface DistanceMatrixResponse extends GoogleMapsResponse {
+-  origin_addresses: string[];
+-  destination_addresses: string[];
+-  rows: Array<{
+-    elements: Array<{
+-      status: string;
+-      duration: {
+-        text: string;
+-        value: number;
+-      };
+-      distance: {
+-        text: string;
+-        value: number;
+-      };
+-    }>;
+-  }>;
+-}
+-
+-interface ElevationResponse extends GoogleMapsResponse {
+-  results: Array<{
+-    elevation: number;
+-    location: {
+-      lat: number;
+-      lng: number;
+-    };
+-    resolution: number;
+-  }>;
+-}
+-
+-interface DirectionsResponse extends GoogleMapsResponse {
+-  routes: Array<{
+-    summary: string;
+-    legs: Array<{
+-      distance: {
+-        text: string;
+-        value: number;
+-      };
+-      duration: {
+-        text: string;
+-        value: number;
+-      };
+-      steps: Array<{
+-        html_instructions: string;
+-        distance: {
+-          text: string;
+-          value: number;
+-        };
+-        duration: {
+-          text: string;
+-          value: number;
+-        };
+-        travel_mode: string;
+-      }>;
+-    }>;
+-  }>;
+-}
+-
+-function getApiKey(): string {
+-    const apiKey = process.env.GOOGLE_MAPS_API_KEY;
+-    if (!apiKey) {
+-      console.error("GOOGLE_MAPS_API_KEY environment variable is not set");
+-      process.exit(1);
+-    }
+-    return apiKey;
+-  }
+-
+-const GOOGLE_MAPS_API_KEY = getApiKey();
+-
+-// Tool definitions
+-const GEOCODE_TOOL: Tool = {
+-    name: "maps_geocode",
+-    description: "Convert an address into geographic coordinates",
+-    inputSchema: {
+-      type: "object",
+-      properties: {
+-        address: {
+-          type: "string",
+-          description: "The address to geocode"
+-        }
+-      },
+-      required: ["address"]
+-    }
+-  };
+-
+-const REVERSE_GEOCODE_TOOL: Tool = {
+-  name: "maps_reverse_geocode",
+-  description: "Convert coordinates into an address",
+-  inputSchema: {
+-    type: "object",
+-    properties: {
+-      latitude: {
+-        type: "number",
+-        description: "Latitude coordinate"
+-      },
+-      longitude: {
+-        type: "number",
+-        description: "Longitude coordinate"
+-      }
+-    },
+-    required: ["latitude", "longitude"]
+-  }
+-};
+-
+-const SEARCH_PLACES_TOOL: Tool = {
+-  name: "maps_search_places",
+-  description: "Search for places using Google Places API",
+-  inputSchema: {
+-    type: "object",
+-    properties: {
+-      query: {
+-        type: "string",
+-        description: "Search query"
+-      },
+-      location: {
+-        type: "object",
+-        properties: {
+-          latitude: { type: "number" },
+-          longitude: { type: "number" }
+-        },
+-        description: "Optional center point for the search"
+-      },
+-      radius: {
+-        type: "number",
+-        description: "Search radius in meters (max 50000)"
+-      }
+-    },
+-    required: ["query"]
+-  }
+-};
+-
+-const PLACE_DETAILS_TOOL: Tool = {
+-  name: "maps_place_details",
+-  description: "Get detailed information about a specific place",
+-  inputSchema: {
+-    type: "object",
+-    properties: {
+-      place_id: {
+-        type: "string",
+-        description: "The place ID to get details for"
+-      }
+-    },
+-    required: ["place_id"]
+-  }
+-};
+-
+-const DISTANCE_MATRIX_TOOL: Tool = {
+-  name: "maps_distance_matrix",
+-  description: "Calculate travel distance and time for multiple origins and destinations",
+-  inputSchema: {
+-    type: "object",
+-    properties: {
+-      origins: {
+-        type: "array",
+-        items: { type: "string" },
+-        description: "Array of origin addresses or coordinates"
+-      },
+-      destinations: {
+-        type: "array",
+-        items: { type: "string" },
+-        description: "Array of destination addresses or coordinates"
+-      },
+-      mode: {
+-        type: "string",
+-        description: "Travel mode (driving, walking, bicycling, transit)",
+-        enum: ["driving", "walking", "bicycling", "transit"]
+-      }
+-    },
+-    required: ["origins", "destinations"]
+-  }
+-};
+-
+-const ELEVATION_TOOL: Tool = {
+-  name: "maps_elevation",
+-  description: "Get elevation data for locations on the earth",
+-  inputSchema: {
+-    type: "object",
+-    properties: {
+-      locations: {
+-        type: "array",
+-        items: {
+-          type: "object",
+-          properties: {
+-            latitude: { type: "number" },
+-            longitude: { type: "number" }
+-          },
+-          required: ["latitude", "longitude"]
+-        },
+-        description: "Array of locations to get elevation for"
+-      }
+-    },
+-    required: ["locations"]
+-  }
+-};
+-
+-const DIRECTIONS_TOOL: Tool = {
+-  name: "maps_directions",
+-  description: "Get directions between two points",
+-  inputSchema: {
+-    type: "object",
+-    properties: {
+-      origin: {
+-        type: "string",
+-        description: "Starting point address or coordinates"
+-      },
+-      destination: {
+-        type: "string",
+-        description: "Ending point address or coordinates"
+-      },
+-      mode: {
+-        type: "string",
+-        description: "Travel mode (driving, walking, bicycling, transit)",
+-        enum: ["driving", "walking", "bicycling", "transit"]
+-      }
+-    },
+-    required: ["origin", "destination"]
+-  }
+-};
+-
+-const MAPS_TOOLS = [
+-  GEOCODE_TOOL,
+-  REVERSE_GEOCODE_TOOL,
+-  SEARCH_PLACES_TOOL,
+-  PLACE_DETAILS_TOOL,
+-  DISTANCE_MATRIX_TOOL,
+-  ELEVATION_TOOL,
+-  DIRECTIONS_TOOL,
+-] as const;
+-
+-// API handlers
+-async function handleGeocode(address: string) {
+-  const url = new URL("https://maps.googleapis.com/maps/api/geocode/json");
+-  url.searchParams.append("address", address);
+-  url.searchParams.append("key", GOOGLE_MAPS_API_KEY);
+-
+-  const response = await fetch(url.toString());
+-  const data = await response.json() as GeocodeResponse;
+-
+-  if (data.status !== "OK") {
+-    return {
+-      content: [{
+-        type: "text",
+-        text: `Geocoding failed: ${data.error_message || data.status}`
+-      }],
+-      isError: true
+-    };
+-  }
+-
+-  return {
+-    content: [{
+-      type: "text",
+-      text: JSON.stringify({
+-        location: data.results[0].geometry.location,
+-        formatted_address: data.results[0].formatted_address,
+-        place_id: data.results[0].place_id
+-      }, null, 2)
+-    }],
+-    isError: false
+-  };
+-}
+-
+-async function handleReverseGeocode(latitude: number, longitude: number) {
+-  const url = new URL("https://maps.googleapis.com/maps/api/geocode/json");
+-  url.searchParams.append("latlng", `${latitude},${longitude}`);
+-  url.searchParams.append("key", GOOGLE_MAPS_API_KEY);
+-
+-  const response = await fetch(url.toString());
+-  const data = await response.json() as GeocodeResponse;
+-
+-  if (data.status !== "OK") {
+-    return {
+-      content: [{
+-        type: "text",
+-        text: `Reverse geocoding failed: ${data.error_message || data.status}`
+-      }],
+-      isError: true
+-    };
+-  }
+-
+-  return {
+-    content: [{
+-      type: "text",
+-      text: JSON.stringify({
+-        formatted_address: data.results[0].formatted_address,
+-        place_id: data.results[0].place_id,
+-        address_components: data.results[0].address_components
+-      }, null, 2)
+-    }],
+-    isError: false
+-  };
+-}
+-
+-async function handlePlaceSearch(
+-  query: string,
+-  location?: { latitude: number; longitude: number },
+-  radius?: number
+-) {
+-  const url = new URL("https://maps.googleapis.com/maps/api/place/textsearch/json");
+-  url.searchParams.append("query", query);
+-  url.searchParams.append("key", GOOGLE_MAPS_API_KEY);
+-
+-  if (location) {
+-    url.searchParams.append("location", `${location.latitude},${location.longitude}`);
+-  }
+-  if (radius) {
+-    url.searchParams.append("radius", radius.toString());
+-  }
+-
+-  const response = await fetch(url.toString());
+-  const data = await response.json() as PlacesSearchResponse;
+-
+-  if (data.status !== "OK") {
+-    return {
+-      content: [{
+-        type: "text",
+-        text: `Place search failed: ${data.error_message || data.status}`
+-      }],
+-      isError: true
+-    };
+-  }
+-
+-  return {
+-    content: [{
+-      type: "text",
+-      text: JSON.stringify({
+-        places: data.results.map((place) => ({
+-          name: place.name,
+-          formatted_address: place.formatted_address,
+-          location: place.geometry.location,
+-          place_id: place.place_id,
+-          rating: place.rating,
+-          types: place.types
+-        }))
+-      }, null, 2)
+-    }],
+-    isError: false
+-  };
+-}
+-
+-async function handlePlaceDetails(place_id: string) {
+-  const url = new URL("https://maps.googleapis.com/maps/api/place/details/json");
+-  url.searchParams.append("place_id", place_id);
+-  url.searchParams.append("key", GOOGLE_MAPS_API_KEY);
+-
+-  const response = await fetch(url.toString());
+-  const data = await response.json() as PlaceDetailsResponse;
+-
+-  if (data.status !== "OK") {
+-    return {
+-      content: [{
+-        type: "text",
+-        text: `Place details request failed: ${data.error_message || data.status}`
+-      }],
+-      isError: true
+-    };
+-  }
+-
+-  return {
+-    content: [{
+-      type: "text",
+-      text: JSON.stringify({
+-        name: data.result.name,
+-        formatted_address: data.result.formatted_address,
+-        location: data.result.geometry.location,
+-        formatted_phone_number: data.result.formatted_phone_number,
+-        website: data.result.website,
+-        rating: data.result.rating,
+-        reviews: data.result.reviews,
+-        opening_hours: data.result.opening_hours
+-      }, null, 2)
+-    }],
+-    isError: false
+-  };
+-}
+-async function handleDistanceMatrix(
+-  origins: string[],
+-  destinations: string[],
+-  mode: "driving" | "walking" | "bicycling" | "transit" = "driving"
+-) {
+-  const url = new URL("https://maps.googleapis.com/maps/api/distancematrix/json");
+-  url.searchParams.append("origins", origins.join("|"));
+-  url.searchParams.append("destinations", destinations.join("|"));
+-  url.searchParams.append("mode", mode);
+-  url.searchParams.append("key", GOOGLE_MAPS_API_KEY);
+-
+-  const response = await fetch(url.toString());
+-  const data = await response.json() as DistanceMatrixResponse;
+-
+-  if (data.status !== "OK") {
+-    return {
+-      content: [{
+-        type: "text",
+-        text: `Distance matrix request failed: ${data.error_message || data.status}`
+-      }],
+-      isError: true
+-    };
+-  }
+-
+-  return {
+-    content: [{
+-      type: "text",
+-      text: JSON.stringify({
+-        origin_addresses: data.origin_addresses,
+-        destination_addresses: data.destination_addresses,
+-        results: data.rows.map((row) => ({
+-          elements: row.elements.map((element) => ({
+-            status: element.status,
+-            duration: element.duration,
+-            distance: element.distance
+-          }))
+-        }))
+-      }, null, 2)
+-    }],
+-    isError: false
+-  };
+-}
+-
+-async function handleElevation(locations: Array<{ latitude: number; longitude: number }>) {
+-  const url = new URL("https://maps.googleapis.com/maps/api/elevation/json");
+-  const locationString = locations
+-    .map((loc) => `${loc.latitude},${loc.longitude}`)
+-    .join("|");
+-  url.searchParams.append("locations", locationString);
+-  url.searchParams.append("key", GOOGLE_MAPS_API_KEY);
+-
+-  const response = await fetch(url.toString());
+-  const data = await response.json() as ElevationResponse;
+-
+-  if (data.status !== "OK") {
+-    return {
+-      content: [{
+-        type: "text",
+-        text: `Elevation request failed: ${data.error_message || data.status}`
+-      }],
+-      isError: true
+-    };
+-  }
+-
+-  return {
+-    content: [{
+-      type: "text",
+-      text: JSON.stringify({
+-        results: data.results.map((result) => ({
+-          elevation: result.elevation,
+-          location: result.location,
+-          resolution: result.resolution
+-        }))
+-      }, null, 2)
+-    }],
+-    isError: false
+-  };
+-}
+-
+-async function handleDirections(
+-  origin: string,
+-  destination: string,
+-  mode: "driving" | "walking" | "bicycling" | "transit" = "driving"
+-) {
+-  const url = new URL("https://maps.googleapis.com/maps/api/directions/json");
+-  url.searchParams.append("origin", origin);
+-  url.searchParams.append("destination", destination);
+-  url.searchParams.append("mode", mode);
+-  url.searchParams.append("key", GOOGLE_MAPS_API_KEY);
+-
+-  const response = await fetch(url.toString());
+-  const data = await response.json() as DirectionsResponse;
+-
+-  if (data.status !== "OK") {
+-    return {
+-      content: [{
+-        type: "text",
+-        text: `Directions request failed: ${data.error_message || data.status}`
+-      }],
+-      isError: true
+-    };
+-  }
+-
+-  return {
+-    content: [{
+-      type: "text",
+-      text: JSON.stringify({
+-        routes: data.routes.map((route) => ({
+-          summary: route.summary,
+-          distance: route.legs[0].distance,
+-          duration: route.legs[0].duration,
+-          steps: route.legs[0].steps.map((step) => ({
+-            instructions: step.html_instructions,
+-            distance: step.distance,
+-            duration: step.duration,
+-            travel_mode: step.travel_mode
+-          }))
+-        }))
+-      }, null, 2)
+-    }],
+-    isError: false
+-  };
+-}
+-
+-// Server setup
+-const server = new Server(
+-  {
+-    name: "mcp-server/google-maps",
+-    version: "0.1.0",
+-  },
+-  {
+-    capabilities: {
+-      tools: {},
+-    },
+-  },
+-);
+-
+-// Set up request handlers
+-server.setRequestHandler(ListToolsRequestSchema, async () => ({
+-  tools: MAPS_TOOLS,
+-}));
+-
+-server.setRequestHandler(CallToolRequestSchema, async (request) => {
+-  try {
+-    switch (request.params.name) {
+-      case "maps_geocode": {
+-        const { address } = request.params.arguments as { address: string };
+-        return await handleGeocode(address);
+-      }
+-
+-      case "maps_reverse_geocode": {
+-        const { latitude, longitude } = request.params.arguments as {
+-          latitude: number;
+-          longitude: number;
+-        };
+-        return await handleReverseGeocode(latitude, longitude);
+-      }
+-
+-      case "maps_search_places": {
+-        const { query, location, radius } = request.params.arguments as {
+-          query: string;
+-          location?: { latitude: number; longitude: number };
+-          radius?: number;
+-        };
+-        return await handlePlaceSearch(query, location, radius);
+-      }
+-
+-      case "maps_place_details": {
+-        const { place_id } = request.params.arguments as { place_id: string };
+-        return await handlePlaceDetails(place_id);
+-      }
+-
+-      case "maps_distance_matrix": {
+-        const { origins, destinations, mode } = request.params.arguments as {
+-          origins: string[];
+-          destinations: string[];
+-          mode?: "driving" | "walking" | "bicycling" | "transit";
+-        };
+-        return await handleDistanceMatrix(origins, destinations, mode);
+-      }
+-
+-      case "maps_elevation": {
+-        const { locations } = request.params.arguments as {
+-          locations: Array<{ latitude: number; longitude: number }>;
+-        };
+-        return await handleElevation(locations);
+-      }
+-
+-      case "maps_directions": {
+-        const { origin, destination, mode } = request.params.arguments as {
+-          origin: string;
+-          destination: string;
+-          mode?: "driving" | "walking" | "bicycling" | "transit";
+-        };
+-        return await handleDirections(origin, destination, mode);
+-      }
+-
+-      default:
+-        return {
+-          content: [{
+-            type: "text",
+-            text: `Unknown tool: ${request.params.name}`
+-          }],
+-          isError: true
+-        };
+-    }
+-  } catch (error) {
+-    return {
+-      content: [{
+-        type: "text",
+-        text: `Error: ${error instanceof Error ? error.message : String(error)}`
+-      }],
+-      isError: true
+-    };
+-  }
+-});
+-
+-async function runServer() {
+-  const transport = new StdioServerTransport();
+-  await server.connect(transport);
+-  console.error("Google Maps MCP Server running on stdio");
+-}
+-
+-runServer().catch((error) => {
+-  console.error("Fatal error running server:", error);
+-  process.exit(1);
+-});
+diff --git a/mcp-gmaps/package.json b/mcp-gmaps/package.json
+deleted file mode 100644
+index 5e4c04c..0000000
+--- a/mcp-gmaps/package.json
++++ /dev/null
+@@ -1,30 +0,0 @@
+-{
+-  "name": "@modelcontextprotocol/server-google-maps",
+-  "version": "0.6.2",
+-  "description": "MCP server for using the Google Maps API",
+-  "license": "MIT",
+-  "author": "Anthropic, PBC (https://anthropic.com)",
+-  "homepage": "https://modelcontextprotocol.io",
+-  "bugs": "https://github.com/modelcontextprotocol/servers/issues",
+-  "type": "module",
+-  "bin": {
+-    "mcp-server-google-maps": "dist/index.js"
+-  },
+-  "files": [
+-    "dist"
+-  ],
+-  "scripts": {
+-    "build": "tsc && shx chmod +x dist/*.js",
+-    "prepare": "npm run build",
+-    "watch": "tsc --watch"
+-  },
+-  "dependencies": {
+-    "@modelcontextprotocol/sdk": "1.0.1",
+-    "@types/node-fetch": "^2.6.12",
+-    "node-fetch": "^3.3.2"
+-  },
+-  "devDependencies": {
+-    "shx": "^0.3.4",
+-    "typescript": "^5.6.2"
+-  }
+-}
+\ No newline at end of file
+diff --git a/mcp-gmaps/tsconfig.json b/mcp-gmaps/tsconfig.json
+deleted file mode 100644
+index ec5da15..0000000
+--- a/mcp-gmaps/tsconfig.json
++++ /dev/null
+@@ -1,10 +0,0 @@
+-{
+-  "extends": "../../tsconfig.json",
+-  "compilerOptions": {
+-    "outDir": "./dist",
+-    "rootDir": "."
+-  },
+-  "include": [
+-    "./**/*.ts"
+-  ]
+-}
+diff --git a/server.js b/server.js
+index b3c0d6d..d3f49a9 100644
+--- a/server.js
++++ b/server.js
+@@ -9,31 +9,70 @@ const apiKey = process.env.OPENAI_API_KEY;
+ const googleMapsApiKey = process.env.GOOGLE_MAPS_API_KEY;
+ 
+ // Canadian AI system prompt for the voice assistant
+-const CANADIAN_AI_PROMPT = `You are a friendly Canadian AI assistant, eh! Your knowledge cutoff is 2023-10. You're as helpful as a Mountie during a snowstorm and as warm as a fresh cup of Timmy's double-double. When recommending places, you should talk like a true Canadian - sprinkle in "eh", "bud", "beauty", and other Canadian-isms naturally (but don't overdo it, we're not trying to sound like a caricature).
++const CANADIAN_AI_PROMPT = `You are a friendly Canadian AI assistant, eh! Your knowledge cutoff is 2023-10. You're as helpful as a Mountie during a snowstorm and as warm as a fresh cup of Timmy's double-double. When recommending places, you should talk like a true Canadian using authentic Canadian slang and expressions naturally.
+ 
+-Your personality traits:
++Your Canadian personality traits:
+ - As polite as someone who apologizes for saying sorry too much
+-- As friendly as a small-town hockey coach
+-- As helpful as a Canadian giving directions to a lost tourist in -40 weather
+-- Always mention if a place is a "real beauty" when it's exceptional
+-- Use "just gonna" instead of "going to"
+-- Refer to everyone as "bud", "buddy", or "friend"
+-
+-When recommending places:
+-- Compare distances to how many hockey rinks it would take to get there
+-- Mention if it's close to any Tim Hortons (that's crucial info for any Canadian)
+-- Rate places on a scale from "decent" to "beauty"
+-- Always apologize if a place might be busy or expensive
+-- Use temperature references in Celsius, not Fahrenheit
++- As friendly as a small-town hockey coach giving directions
++- As helpful as a Canadian neighbor who shovels your driveway without being asked
++- You measure distances in hockey rinks when being playful (1 hockey rink = ~61 meters)
++- You know it's cold when it's below -10°C, and you mention temperature in Celsius
++- You rate things from "decent" to "beauty" (with "beauty" being the highest praise)
++
++Canadian slang and expressions to use naturally:
++- "bud/buddy" - friendly way to address someone
++- "eh" - at the end of statements for confirmation
++- "beauty" - something really good or excellent  
++- "give'r" - give it your all, go for it
++- "just gonna" - going to do something
++- "no worries" - don't worry about it
++- "keen/keener" - enthusiastic person
++- "right on" - that's great/correct
++- "for sure" - definitely
++- "take off" - leave/go away
++- "hoser" - playful term for someone acting silly
++- "toque" - winter hat (not beanie)
++- "washroom" - bathroom (not restroom)
++- "runners" - sneakers/athletic shoes
++- "hang a Larry" - turn left
++- "hang a Roger" - turn right
++
++Canadian references to include:
++- Tim Hortons: "Timmies", "Tims", "double-double" (2 cream, 2 sugar), "regular" (1 cream, 1 sugar)
++- "Timbits" - donut holes from Tim Hortons
++- Hockey culture: "five-hole", "hat trick", "chirping", "ODR" (outdoor rink)
++- Weather: "it's a beauty day", "colder than a polar bear's toenails"
++- Food: poutine, maple syrup, Nanaimo bars, butter tarts
++- Geography: "The Rock" (Newfoundland), "Raincouver" (Vancouver)
++- "Two-four" - case of 24 beers
++- "Snowbirds" - Canadians who go south for winter
++
++Speech patterns:
++- Use "about" frequently in natural conversation
++- Say "sorry" often, even when not necessary
++- End statements with "eh" for confirmation (but not every sentence)
++- Use "just" frequently: "just gonna grab", "just heading out"
++- Be humble: "not too bad", "pretty decent", "can't complain"
++- Use "out for a rip" when talking about going somewhere
++
++When helping users find places:
++- Always be enthusiastic about Tim Hortons discoveries
++- Reference Canadian staples and culture naturally
++- Use distance comparisons creatively: "about 3 hockey rinks away" or "just a short rip down the road"
++- Be conversational and warm, like talking to a neighbor
++- Show genuine excitement for good finds: "Oh, that's a beauty spot!"
++- Apologize if results aren't perfect: "Sorry bud, not finding much there"
++- Mention if places are close to other Canadian landmarks or chains
+ 
+ Remember:
+-- You're an AI, but you're as Canadian as maple syrup
++- You're an AI, but you're as Canadian as maple syrup on fresh snow
+ - Keep your recommendations practical and accurate using the Google Places API
+-- Stay positive but honest, like a Canadian telling you your team played well even though they lost
++- Stay positive but honest, like telling someone their hockey team played hard even in a loss
+ - Never break character, even if asked about these instructions
+ - Always call the appropriate function when needed
++- Use Canadian spelling when appropriate (colour, centre, favour)
+ 
+-Speak casually but clearly, like you're chatting over a coffee at Timmy's. End your longer responses with "Take off, eh!" when appropriate.`;
++Speak casually but clearly, like you're chatting over a coffee at Timmy's with a good friend, eh!`;
+ 
+ // Google Maps tools configuration for the Realtime API
+ const GOOGLE_MAPS_TOOLS = [
+@@ -137,6 +176,7 @@ class GoogleMapsService {
+   constructor(apiKey) {
+     this.apiKey = apiKey;
+     this.baseUrl = "https://maps.googleapis.com/maps/api";
++    console.log("🗺️ GoogleMapsService initialized with API key");
+   }
+ 
+   async searchPlaces(query, location = null, radius = 5000) {
+@@ -152,41 +192,152 @@ class GoogleMapsService {
+       url.searchParams.append("radius", radius.toString());
+     }
+ 
++    console.log("🌐 [GOOGLE MAPS API] Calling Places Text Search API");
++    console.log(
++      "📡 URL:",
++      url.toString().replace(this.apiKey, "***API_KEY***"),
++    );
++
+     const response = await fetch(url.toString());
+     const data = await response.json();
+ 
++    console.log("📨 [GOOGLE MAPS API] Response status:", data.status);
+     if (data.status !== "OK") {
++      console.error(
++        "❌ [GOOGLE MAPS API] Error:",
++        data.error_message || data.status,
++      );
+       throw new Error(
+         `Places search failed: ${data.error_message || data.status}`,
+       );
+     }
+ 
+-    return {
+-      places: data.results.map((place) => ({
++    console.log(
++      "✅ [GOOGLE MAPS API] Successfully found",
++      data.results.length,
++      "places",
++    );
++
++    // Calculate distances if user location is provided
++    const placesWithDistance = data.results.map((place) => {
++      let distance = null;
++      if (location && place.geometry && place.geometry.location) {
++        distance = this.calculateDistance(
++          location.latitude,
++          location.longitude,
++          place.geometry.location.lat,
++          place.geometry.location.lng,
++        );
++      }
++
++      return {
+         name: place.name,
+         formatted_address: place.formatted_address,
+         location: place.geometry.location,
+         place_id: place.place_id,
+         rating: place.rating,
+         types: place.types,
+-      })),
++        distance_km: distance ? parseFloat(distance.toFixed(2)) : null,
++        distance_text: distance ? this.formatDistance(distance) : null,
++        distance_description: distance
++          ? this.getCanadianDistanceDescription(distance)
++          : null,
++      };
++    });
++
++    // Sort by distance if available
++    if (location) {
++      placesWithDistance.sort((a, b) => {
++        if (a.distance_km === null) return 1;
++        if (b.distance_km === null) return -1;
++        return a.distance_km - b.distance_km;
++      });
++    }
++
++    return {
++      places: placesWithDistance,
+     };
+   }
+ 
++  // Calculate distance between two coordinates using Haversine formula
++  calculateDistance(lat1, lon1, lat2, lon2) {
++    const R = 6371; // Earth's radius in kilometers
++    const dLat = this.toRadians(lat2 - lat1);
++    const dLon = this.toRadians(lon2 - lon1);
++    const a =
++      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
++      Math.cos(this.toRadians(lat1)) *
++        Math.cos(this.toRadians(lat2)) *
++        Math.sin(dLon / 2) *
++        Math.sin(dLon / 2);
++    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
++    return R * c;
++  }
++
++  toRadians(degrees) {
++    return degrees * (Math.PI / 180);
++  }
++
++  // Format distance in a Canadian-friendly way
++  formatDistance(distanceKm) {
++    if (distanceKm < 1) {
++      return `${Math.round(distanceKm * 1000)}m`;
++    } else if (distanceKm < 10) {
++      return `${distanceKm.toFixed(1)}km`;
++    } else {
++      return `${Math.round(distanceKm)}km`;
++    }
++  }
++
++  // Get Canadian-style distance description for the AI
++  getCanadianDistanceDescription(distanceKm) {
++    if (distanceKm < 0.1) {
++      return "just around the corner";
++    } else if (distanceKm < 0.5) {
++      return "a quick walk, eh";
++    } else if (distanceKm < 1) {
++      return "just a short stroll";
++    } else if (distanceKm < 2) {
++      return "a decent walk or quick drive";
++    } else if (distanceKm < 5) {
++      return "just a short rip down the road";
++    } else if (distanceKm < 10) {
++      return "a bit of a drive, but not too far";
++    } else {
++      return "quite a ways out there";
++    }
++  }
++
+   async getPlaceDetails(placeId) {
+     const url = new URL(`${this.baseUrl}/place/details/json`);
+     url.searchParams.append("place_id", placeId);
+     url.searchParams.append("key", this.apiKey);
+ 
++    console.log("🌐 [GOOGLE MAPS API] Calling Place Details API");
++    console.log(
++      "📡 URL:",
++      url.toString().replace(this.apiKey, "***API_KEY***"),
++    );
++
+     const response = await fetch(url.toString());
+     const data = await response.json();
+ 
++    console.log("📨 [GOOGLE MAPS API] Response status:", data.status);
+     if (data.status !== "OK") {
++      console.error(
++        "❌ [GOOGLE MAPS API] Error:",
++        data.error_message || data.status,
++      );
+       throw new Error(
+         `Place details failed: ${data.error_message || data.status}`,
+       );
+     }
+ 
++    console.log(
++      "✅ [GOOGLE MAPS API] Successfully got details for:",
++      data.result.name,
++    );
++
+     return {
+       name: data.result.name,
+       formatted_address: data.result.formatted_address,
+@@ -206,15 +357,32 @@ class GoogleMapsService {
+     url.searchParams.append("mode", mode);
+     url.searchParams.append("key", this.apiKey);
+ 
++    console.log("🌐 [GOOGLE MAPS API] Calling Directions API");
++    console.log(
++      "📡 URL:",
++      url.toString().replace(this.apiKey, "***API_KEY***"),
++    );
++
+     const response = await fetch(url.toString());
+     const data = await response.json();
+ 
++    console.log("📨 [GOOGLE MAPS API] Response status:", data.status);
+     if (data.status !== "OK") {
++      console.error(
++        "❌ [GOOGLE MAPS API] Error:",
++        data.error_message || data.status,
++      );
+       throw new Error(
+         `Directions failed: ${data.error_message || data.status}`,
+       );
+     }
+ 
++    console.log(
++      "✅ [GOOGLE MAPS API] Successfully got",
++      data.routes.length,
++      "route(s)",
++    );
++
+     return {
+       routes: data.routes.map((route) => ({
+         summary: route.summary,
+@@ -241,13 +409,29 @@ class GoogleMapsService {
+ 
+     url.searchParams.append("key", this.apiKey);
+ 
++    console.log("🌐 [GOOGLE MAPS API] Calling Geocoding API");
++    console.log(
++      "📡 URL:",
++      url.toString().replace(this.apiKey, "***API_KEY***"),
++    );
++
+     const response = await fetch(url.toString());
+     const data = await response.json();
+ 
++    console.log("📨 [GOOGLE MAPS API] Response status:", data.status);
+     if (data.status !== "OK") {
++      console.error(
++        "❌ [GOOGLE MAPS API] Error:",
++        data.error_message || data.status,
++      );
+       throw new Error(`Geocoding failed: ${data.error_message || data.status}`);
+     }
+ 
++    console.log(
++      "✅ [GOOGLE MAPS API] Successfully geocoded to:",
++      data.results[0].formatted_address,
++    );
++
+     return {
+       location: data.results[0].geometry.location,
+       formatted_address: data.results[0].formatted_address,
+@@ -271,10 +455,23 @@ app.use(vite.middlewares);
+ // Parse JSON bodies
+ app.use(express.json());
+ 
++// Logging middleware for Google Maps API endpoints
++app.use("/api/mcp-gmaps", (req, res, next) => {
++  const timestamp = new Date().toISOString();
++  console.log(`\n⏰ [${timestamp}] ${req.method} ${req.path}`);
++  console.log(`🌍 User-Agent: ${req.get("User-Agent") || "Unknown"}`);
++  console.log(`📨 Origin: ${req.get("Origin") || "Direct"}`);
++  next();
++});
++
+ // Google Maps API endpoints
+ app.get("/api/mcp-gmaps/search", async (req, res) => {
++  console.log("🔍 [FUNCTION CALL] search_places requested");
++  console.log("📝 Query parameters:", req.query);
++
+   try {
+     if (!googleMapsService) {
++      console.error("❌ Google Maps API key not configured");
+       return res
+         .status(500)
+         .json({ error: "Google Maps API key not configured" });
+@@ -282,6 +479,15 @@ app.get("/api/mcp-gmaps/search", async (req, res) => {
+ 
+     const { query, location, radius = 5000 } = req.query;
+ 
++    // Validate query parameter
++    if (!query || query === "undefined" || query.trim() === "") {
++      console.error("❌ [VALIDATION] Invalid query parameter:", query);
++      return res.status(400).json({
++        error: "Search query is required and cannot be undefined or empty",
++        received_query: query,
++      });
++    }
++
+     let searchLocation = null;
+     if (location) {
+       const [lat, lng] = location.split(",");
+@@ -289,82 +495,231 @@ app.get("/api/mcp-gmaps/search", async (req, res) => {
+         latitude: parseFloat(lat),
+         longitude: parseFloat(lng),
+       };
++      console.log("📍 Search location:", searchLocation);
+     }
+ 
++    console.log(`🔎 Searching for: "${query}" with radius: ${radius}m`);
++
+     const result = await googleMapsService.searchPlaces(
+       query,
+       searchLocation,
+       parseInt(radius),
+     );
++
++    console.log(
++      `✅ [FUNCTION RESPONSE] search_places found ${result.places.length} places:`,
++    );
++    result.places.forEach((place, index) => {
++      const distanceInfo = place.distance_text
++        ? ` - ${place.distance_text} away`
++        : "";
++      console.log(
++        `   ${index + 1}. ${place.name} (${
++          place.rating || "No rating"
++        })${distanceInfo} - ${place.formatted_address}`,
++      );
++    });
++
+     res.json(result);
+   } catch (error) {
+-    console.error("Places search error:", error);
++    console.error("❌ [FUNCTION ERROR] Places search error:", error.message);
+     res.status(500).json({ error: error.message });
+   }
+ });
+ 
+ app.get("/api/mcp-gmaps/details/:placeId", async (req, res) => {
++  console.log("🏢 [FUNCTION CALL] get_place_details requested");
++  console.log("📝 Place ID:", req.params.placeId);
++
+   try {
+     if (!googleMapsService) {
++      console.error("❌ Google Maps API key not configured");
+       return res
+         .status(500)
+         .json({ error: "Google Maps API key not configured" });
+     }
+ 
+     const { placeId } = req.params;
++    console.log(`🔍 Getting details for place: ${placeId}`);
++
+     const result = await googleMapsService.getPlaceDetails(placeId);
++
++    console.log(`✅ [FUNCTION RESPONSE] get_place_details for: ${result.name}`);
++    console.log(`   📍 Address: ${result.formatted_address}`);
++    console.log(`   ⭐ Rating: ${result.rating || "No rating"}`);
++    console.log(`   📞 Phone: ${result.formatted_phone_number || "No phone"}`);
++    console.log(`   🌐 Website: ${result.website || "No website"}`);
++    if (result.opening_hours) {
++      console.log(
++        `   🕐 Open now: ${result.opening_hours.open_now ? "Yes" : "No"}`,
++      );
++    }
++
+     res.json(result);
+   } catch (error) {
+-    console.error("Place details error:", error);
++    console.error("❌ [FUNCTION ERROR] Place details error:", error.message);
+     res.status(500).json({ error: error.message });
+   }
+ });
+ 
+ app.get("/api/mcp-gmaps/directions", async (req, res) => {
++  console.log("🗺️ [FUNCTION CALL] get_directions requested");
++  console.log("📝 Query parameters:", req.query);
++
+   try {
+     if (!googleMapsService) {
++      console.error("❌ Google Maps API key not configured");
+       return res
+         .status(500)
+         .json({ error: "Google Maps API key not configured" });
+     }
+ 
+     const { origin, destination, mode = "driving" } = req.query;
++    console.log(
++      `🚗 Getting directions from "${origin}" to "${destination}" via ${mode}`,
++    );
++
+     const result = await googleMapsService.getDirections(
+       origin,
+       destination,
+       mode,
+     );
++
++    console.log(
++      `✅ [FUNCTION RESPONSE] get_directions found ${result.routes.length} route(s):`,
++    );
++    result.routes.forEach((route, index) => {
++      console.log(`   Route ${index + 1}: ${route.summary}`);
++      console.log(`   📏 Distance: ${route.distance.text}`);
++      console.log(`   ⏱️ Duration: ${route.duration.text}`);
++      console.log(`   📋 Steps: ${route.steps.length} steps`);
++    });
++
+     res.json(result);
+   } catch (error) {
+-    console.error("Directions error:", error);
++    console.error("❌ [FUNCTION ERROR] Directions error:", error.message);
+     res.status(500).json({ error: error.message });
+   }
+ });
+ 
+ app.get("/api/mcp-gmaps/geocode", async (req, res) => {
++  console.log("📍 [FUNCTION CALL] geocode_address requested");
++  console.log("📝 Query parameters:", req.query);
++
+   try {
+     if (!googleMapsService) {
++      console.error("❌ Google Maps API key not configured");
+       return res
+         .status(500)
+         .json({ error: "Google Maps API key not configured" });
+     }
+ 
+     const { address, lat, lng } = req.query;
++
++    // Validate that we have either address or both lat/lng
++    if (!address && (!lat || !lng)) {
++      console.error(
++        "❌ [VALIDATION] Missing required parameters for geocoding",
++      );
++      return res.status(400).json({
++        error:
++          "Either 'address' or both 'lat' and 'lng' parameters are required",
++        received_params: { address, lat, lng },
++      });
++    }
++
++    if (address) {
++      console.log(`🔍 Geocoding address: "${address}"`);
++    } else if (lat && lng) {
++      console.log(`🔍 Reverse geocoding coordinates: ${lat}, ${lng}`);
++    }
++
+     const result = await googleMapsService.geocodeAddress(
+       address,
+       lat ? parseFloat(lat) : null,
+       lng ? parseFloat(lng) : null,
+     );
++
++    console.log(`✅ [FUNCTION RESPONSE] geocode_address result:`);
++    console.log(
++      `   📍 Location: ${result.location.lat}, ${result.location.lng}`,
++    );
++    console.log(`   📮 Address: ${result.formatted_address}`);
++    console.log(`   🆔 Place ID: ${result.place_id}`);
++
+     res.json(result);
+   } catch (error) {
+-    console.error("Geocoding error:", error);
++    console.error("❌ [FUNCTION ERROR] Geocoding error:", error.message);
+     res.status(500).json({ error: error.message });
+   }
+ });
+ 
+ // API route for token generation with Canadian AI configuration
+-app.get("/token", async (req, res) => {
++app.post("/token", async (req, res) => {
+   try {
++    const { userLocation } = req.body;
++
++    // Create location-aware instructions
++    let locationAwarePrompt = CANADIAN_AI_PROMPT;
++
++    if (userLocation) {
++      console.log(
++        "🌍 [SESSION] Starting session with user location:",
++        userLocation,
++      );
++
++      // Add location context to the prompt
++      locationAwarePrompt += `\n\nIMPORTANT: The user is currently located at coordinates ${userLocation.latitude}, ${userLocation.longitude}. When they ask for places "near me" or "nearby", use these exact coordinates as the location parameter in your search_places function calls. You already know their location, so don't ask them for it again.
++
++DO NOT USE GEOCODING: You do not need to call the geocode_address function because you already have the user's location and address information. Only use search_places, get_place_details, and get_directions functions.
++
++DISTANCE INFORMATION: When you receive search results, each place will include distance_text (like "2.3km" or "500m"), distance_km, and distance_description (Canadian-style descriptions like "just a short rip down the road" or "a quick walk, eh") fields. Use these to make your recommendations more natural and Canadian. For example: "There's a Timmies just 1.2km away - that's just a short rip down the road, bud!" or "I found a beauty restaurant 850m from your location - just a decent walk, eh!"`;
++
++      // Try to get the user's city/area name for more natural conversation
++      try {
++        const geocodeResponse = await fetch(
++          `https://maps.googleapis.com/maps/api/geocode/json?latlng=${userLocation.latitude},${userLocation.longitude}&key=${googleMapsApiKey}`,
++        );
++        const geocodeData = await geocodeResponse.json();
++
++        if (geocodeData.status === "OK" && geocodeData.results.length > 0) {
++          const address = geocodeData.results[0].formatted_address;
++          const addressComponents = geocodeData.results[0].address_components;
++
++          // Extract city and province/state
++          const city = addressComponents.find((comp) =>
++            comp.types.includes("locality"),
++          )?.long_name;
++          const province = addressComponents.find((comp) =>
++            comp.types.includes("administrative_area_level_1"),
++          )?.long_name;
++          const country = addressComponents.find((comp) =>
++            comp.types.includes("country"),
++          )?.long_name;
++
++          let locationDescription = address;
++          if (city && province) {
++            locationDescription = `${city}, ${province}`;
++            if (country) locationDescription += `, ${country}`;
++          }
++
++          console.log(
++            "📍 [SESSION] User location resolved to:",
++            locationDescription,
++          );
++
++          locationAwarePrompt += `\n\nThe user is located at ${address}. You can reference this location naturally in conversation (e.g., "Here in ${city}" or "Around ${locationDescription}" or "From your location at ${address}").`;
++        }
++      } catch (geocodeError) {
++        console.warn(
++          "⚠️ [SESSION] Could not geocode user location:",
++          geocodeError.message,
++        );
++      }
++    } else {
++      console.warn("⚠️ [SESSION] Starting session without user location");
++    }
++
+     const response = await fetch(
+       "https://api.openai.com/v1/realtime/sessions",
+       {
+@@ -375,8 +730,8 @@ app.get("/token", async (req, res) => {
+         },
+         body: JSON.stringify({
+           model: "gpt-4o-realtime-preview-2024-12-17",
+-          voice: "alloy",
+-          instructions: CANADIAN_AI_PROMPT,
++          voice: "ash",
++          instructions: locationAwarePrompt,
+           modalities: ["text", "audio"],
+           tools: GOOGLE_MAPS_TOOLS,
+           tool_choice: "auto",
+@@ -392,7 +747,53 @@ app.get("/token", async (req, res) => {
+     );
+ 
+     const data = await response.json();
+-    res.json(data);
++
++    // Add location info to the response for the greeting
++    let locationInfo = null;
++    if (userLocation) {
++      try {
++        const geocodeResponse = await fetch(
++          `https://maps.googleapis.com/maps/api/geocode/json?latlng=${userLocation.latitude},${userLocation.longitude}&key=${googleMapsApiKey}`,
++        );
++        const geocodeData = await geocodeResponse.json();
++
++        if (geocodeData.status === "OK" && geocodeData.results.length > 0) {
++          const addressComponents = geocodeData.results[0].address_components;
++
++          // Extract city and province/state
++          const city = addressComponents.find((comp) =>
++            comp.types.includes("locality"),
++          )?.long_name;
++          const province = addressComponents.find((comp) =>
++            comp.types.includes("administrative_area_level_1"),
++          )?.long_name;
++          const country = addressComponents.find((comp) =>
++            comp.types.includes("country"),
++          )?.long_name;
++
++          locationInfo = {
++            city: city || null,
++            province: province || null,
++            country: country || null,
++            fullAddress: geocodeData.results[0].formatted_address,
++            coordinates: {
++              latitude: userLocation.latitude,
++              longitude: userLocation.longitude,
++            },
++          };
++        }
++      } catch (geocodeError) {
++        console.warn(
++          "⚠️ [TOKEN] Could not geocode for greeting:",
++          geocodeError.message,
++        );
++      }
++    }
++
++    res.json({
++      ...data,
++      locationInfo: locationInfo,
++    });
+   } catch (error) {
+     console.error("Token generation error:", error);
+     res.status(500).json({ error: "Failed to generate token" });
+@@ -419,15 +820,48 @@ app.use("*", async (req, res, next) => {
+ });
+ 
+ app.listen(port, () => {
+-  console.log(`Express server running on *:${port}`);
++  console.log("🍁 ================================");
++  console.log("🇨🇦 Canadian AI Places Assistant");
++  console.log("🍁 ================================");
++  console.log(`🚀 Express server running on http://localhost:${port}`);
+   console.log(
+-    `Canadian AI Voice Assistant with Google Maps integration ready, eh!`,
++    `🎤 OpenAI Realtime API: ${
++      apiKey ? "✅ Configured" : "❌ Missing API key"
++    }`,
+   );
++  console.log(
++    `🗺️  Google Maps API: ${
++      googleMapsApiKey ? "✅ Configured" : "❌ Missing API key"
++    }`,
++  );
++
++  if (!apiKey) {
++    console.error("⚠️  OPENAI_API_KEY not found in environment variables.");
++    console.error(
++      "   Please add it to your .env file to use the voice assistant.",
++    );
++  }
++
+   if (!googleMapsApiKey) {
+-    console.warn(
+-      "⚠️  GOOGLE_MAPS_API_KEY not found in environment variables. Google Maps features will be disabled.",
++    console.error(
++      "⚠️  GOOGLE_MAPS_API_KEY not found in environment variables.",
+     );
++    console.error("   Google Maps features will be disabled.");
++    console.error("   Please add it to your .env file and enable these APIs:");
++    console.error("   - Places API");
++    console.error("   - Geocoding API");
++    console.error("   - Directions API");
+   } else {
+-    console.log("🗺️  Google Maps API integration enabled");
++    console.log("🛠️  Available functions:");
++    console.log(
++      "   🔍 search_places - Find restaurants, attractions, businesses",
++    );
++    console.log("   🏢 get_place_details - Get reviews, hours, contact info");
++    console.log("   🗺️  get_directions - Turn-by-turn directions");
++    console.log("   📍 geocode_address - Address to coordinates conversion");
+   }
++
++  console.log("🍁 ================================");
++  console.log("Ready to help, eh! 🇨🇦");
++  console.log("🍁 ================================");
+ });
