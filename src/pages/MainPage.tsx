@@ -1,6 +1,7 @@
 import { useState } from "react";
 import VoiceButton from "@/components/VoiceButton";
 import { Search } from "lucide-react";
+import Map from "@/components/Map";
 
 const MainPage = () => {
   const [isRecording, setIsRecording] = useState(false);
@@ -33,14 +34,8 @@ const MainPage = () => {
 
       {/* Map Area */}
       <div className="flex-1 relative bg-muted/30">
-        <div className="absolute inset-4 bg-card rounded-xl shadow-md flex items-center justify-center">
-          <div className="text-center text-muted-foreground">
-            <div className="w-12 h-12 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-2">
-              <Search className="w-6 h-6 text-primary" />
-            </div>
-            <p className="text-sm">Map will appear here</p>
-            <p className="text-xs mt-1">Location services required</p>
-          </div>
+        <div className="absolute inset-4 bg-card rounded-xl shadow-md flex items-center justify-center overflow-hidden">
+          <Map />
         </div>
       </div>
 
