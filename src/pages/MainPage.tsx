@@ -13,6 +13,22 @@ import {
 import Map from "@/components/Map";
 import SessionLogger from "@/components/SessionLogger";
 
+// Interface for search result places
+interface SearchResult {
+  place_id: string;
+  name: string;
+  formatted_address: string;
+  geometry: {
+    location: {
+      lat: number;
+      lng: number;
+    };
+  };
+  rating?: number;
+  types?: string[];
+  business_status?: string;
+}
+
 const MainPage = () => {
   const [isSessionActive, setIsSessionActive] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
@@ -32,6 +48,7 @@ const MainPage = () => {
     }>
   >([]);
   const [showSessionLogger, setShowSessionLogger] = useState<boolean>(false);
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const sessionRef = useRef<WebRTCVoiceSession | null>(null);
 
   // Get user location on component mount
@@ -46,6 +63,25 @@ const MainPage = () => {
         console.error("❌ Failed to get user location:", error);
       });
   }, []);
+
+  // Handle search results from WebRTC session
+  const handleSearchResults = (results: SearchResult[]) => {
+    console.log("🗺️ [MAP] Received search results:", results);
+    console.log("🗺️ [MAP] Search results count:", results.length);
+    console.log("🗺️ [MAP] First result sample:", results[0]);
+    setSearchResults(results);
+
+    // Show a response message
+    if (results.length > 0) {
+      setLastResponse(
+        `Found ${results.length} places nearby! Check out the pins on the map, eh!`
+      );
+    } else {
+      setLastResponse(
+        "Sorry bud, couldn't find any places matching your search. Try something else!"
+      );
+    }
+  };
 
   const handleStartSession = async () => {
     if (sessionRef.current && sessionRef.current.isSessionActive()) return;
@@ -74,7 +110,8 @@ const MainPage = () => {
       },
       (event) => {
         setEventLog((prev) => [...prev, event]);
-      }
+      },
+      handleSearchResults // Pass search results handler
     );
 
     try {
@@ -90,6 +127,7 @@ const MainPage = () => {
       sessionRef.current.stopSession();
       setIsSessionActive(false);
       setIsConnecting(false);
+      setSearchResults([]); // Clear search results when session stops
     }
   };
 
@@ -110,6 +148,18 @@ const MainPage = () => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleSendText();
+    }
+  };
+
+  const handleMarkerClick = (place: SearchResult) => {
+    console.log("🏢 [MAP] Marker clicked:", place);
+    setLastResponse(`Selected: ${place.name} - ${place.formatted_address}`);
+
+    // Send details request to AI if session is active
+    if (sessionRef.current && sessionRef.current.isSessionActive()) {
+      sessionRef.current.sendTextMessage(
+        `Tell me more about ${place.name} at ${place.formatted_address}`
+      );
     }
   };
 
@@ -135,6 +185,12 @@ const MainPage = () => {
               Location Ready
             </div>
           )}
+          {searchResults.length > 0 && (
+            <div className="flex items-center text-xs text-muted-foreground">
+              <Search className="w-3 h-3 mr-1" />
+              {searchResults.length} places found
+            </div>
+          )}
           <Search className="w-6 h-6 text-muted-foreground" />
         </div>
       </header>
@@ -142,7 +198,10 @@ const MainPage = () => {
       {/* Map Area */}
       <div className="flex-1 relative bg-muted/30">
         <div className="absolute inset-4 bg-card rounded-xl shadow-md flex items-center justify-center overflow-hidden">
-          <Map />
+          <Map
+            searchResults={searchResults}
+            onMarkerClick={handleMarkerClick}
+          />
         </div>
       </div>
 
