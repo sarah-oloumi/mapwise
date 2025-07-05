@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useLocation } from '@/hooks/useLocation';
+import { Card, CardHeader, CardTitle } from '@/components/ui/card';
 
 interface NewsArticle {
   title: string;
@@ -13,6 +14,8 @@ const NewsPage = () => {
   const [articles, setArticles] = useState<NewsArticle[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const isFetching = useRef(false);
+
   useEffect(() => {
     if (locationError) {
       setError(locationError);
@@ -24,86 +27,77 @@ const NewsPage = () => {
       return; // Wait for the city to be available
     }
 
-    // This flag prevents the fetch from running if the component unmounts
     let isCancelled = false;
 
     const fetchNews = async () => {
-        const TAVILY_API_KEY = import.meta.env.VITE_TAVILY_API_KEY;
-        if (!TAVILY_API_KEY) {
-          setError('Tavily API key not found.');
-          setLoading(false);
+      if (!city || isFetching.current) {
+        return; // Don't fetch if no city or if a fetch is already in progress
+      }
+
+      const cachedNews = sessionStorage.getItem(`news_${city}`);
+      if (cachedNews) {
+        console.log('Loading news from cache');
+        setArticles(JSON.parse(cachedNews));
+        setLoading(false);
+        return;
+      }
+
+      try {
+        isFetching.current = true;
+        console.log(`Searching for news in ${city}`);
+        const searchResponse = await fetch('/api/tavily/search', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            query: `local news in ${city}`,
+            search_depth: 'advanced',
+            include_answer: false,
+            include_images: true,
+            include_raw_content: true,
+            max_results: 5,
+            topic: 'news',
+          }),
+        });
+
+        const searchData = await searchResponse.json();
+
+        if (!searchResponse.ok) {
+          const errorMessage = searchData.message || searchData.error || `Request failed with status ${searchResponse.status}`;
+          throw new Error(errorMessage);
+        }
+
+        if (!searchData.results || searchData.results.length === 0) {
+          if (!isCancelled) setError('No news articles found for your area.');
           return;
         }
 
-        try {
-          console.log(`Searching for news in ${city}`);
-          const searchResponse = await fetch('/api/tavily/search', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${TAVILY_API_KEY}`
-            },
-            body: JSON.stringify({
-              query: `local news in ${city}`,
-              search_depth: 'advanced',
-              include_answer: false,
-              include_images: true,
-              include_raw_content: false,
-              max_results: 5, // Fetch 5 to avoid excessive extract calls
-              topic: 'news',
-            }),
-          });
+        const articlesWithContent = searchData.results.map((article: any) => ({
+          ...article,
+          content: article.raw_content || article.content || '',
+        }));
 
-          const searchData = await searchResponse.json();
-          if (!searchResponse.ok || !searchData.results || searchData.results.length === 0) {
-            setError(searchData.error || 'No news articles found for your area.');
-            setLoading(false);
-            return;
-          }
-
-          console.log('Extracting content from search results...');
-          const articlesWithFullContent = await Promise.all(
-            searchData.results.map(async (article: any) => {
-              try {
-                const extractResponse = await fetch('/api/tavily/extract', {
-                  method: 'POST',
-                  headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${TAVILY_API_KEY}`
-                  },
-                  body: JSON.stringify({ url: article.url }),
-                });
-                const extractData = await extractResponse.json();
-                if (extractResponse.ok && extractData.content) {
-                  return { ...article, content: extractData.content };
-                }
-                return article; // Return original article if extraction fails
-              } catch (extractError) {
-                console.error(`Failed to extract content for ${article.url}:`, extractError);
-                return article; // Return original article on error
-              }
-            })
-          );
-
-          if (!isCancelled) {
-            setArticles(articlesWithFullContent);
-          }
-
-        } catch (err) {
-          if (!isCancelled) {
-            console.error('Failed to fetch news:', err);
-            setError('Failed to fetch news. Please check your connection and API key.');
-          }
-        } finally {
-          if (!isCancelled) {
-            setLoading(false);
-          }
+        if (!isCancelled) {
+          setArticles(articlesWithContent);
+          sessionStorage.setItem(`news_${city}`, JSON.stringify(articlesWithContent));
         }
-      };
 
-      fetchNews();
+      } catch (err: any) {
+        if (!isCancelled) {
+          console.error('Failed to fetch news:', err);
+          setError(err.message || 'Failed to fetch news. Please check your connection.');
+        }
+      } finally {
+        if (!isCancelled) {
+          setLoading(false);
+        }
+        isFetching.current = false;
+      }
+    };
 
-    // Cleanup function to run when the component unmounts or re-runs the effect
+    fetchNews();
+
     return () => {
       isCancelled = true;
     };
@@ -125,26 +119,17 @@ const NewsPage = () => {
     return (
       <div className="flex flex-col items-center p-4 md:p-6 space-y-6">
         {articles.map((article, index) => (
-          <a
-            href={article.url}
-            key={index}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="w-full max-w-4xl flex flex-col md:flex-row bg-card rounded-lg shadow-md hover:shadow-xl transition-shadow duration-200 ease-in-out overflow-hidden border border-border"
-          >
-            {article.image ? (
-              <img src={article.image} alt={article.title} className="w-full md:w-1/3 h-56 md:h-auto object-cover" />
-            ) : (
-              <div className="w-full md:w-1/3 h-56 md:h-auto bg-muted flex items-center justify-center">
-                <span className="text-muted-foreground text-sm">No Image Available</span>
+          <a href={article.url} key={index} target="_blank" rel="noopener noreferrer" className="w-full max-w-4xl no-underline text-current">
+            <Card className="flex flex-col overflow-hidden bg-card rounded-lg shadow-md hover:shadow-xl transition-shadow duration-200 ease-in-out border border-border">
+              <CardHeader>
+                <CardTitle>{article.title}</CardTitle>
+              </CardHeader>
+              <div className="p-5 flex flex-col flex-grow">
+                <p className="text-sm text-muted-foreground mt-auto pt-2">
+                  {new URL(article.url).hostname.replace('www.', '')}
+                </p>
               </div>
-            )}
-            <div className="p-5 flex flex-col flex-grow">
-              <h3 className="font-semibold text-xl mb-3 text-foreground flex-grow">{article.title}</h3>
-              <p className="text-sm text-muted-foreground mt-auto pt-2">
-                {new URL(article.url).hostname.replace('www.', '')}
-              </p>
-            </div>
+            </Card>
           </a>
         ))}
       </div>
