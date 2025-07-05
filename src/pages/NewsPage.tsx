@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef } from 'react';
-import { useLocation } from '@/hooks/useLocation';
+import { useState, useEffect, useRef } from "react";
+import { useLocation } from "@/hooks/useLocation";
 
 interface NewsArticle {
   title: string;
@@ -28,80 +28,84 @@ const NewsPage = () => {
     let isCancelled = false;
 
     const fetchNews = async () => {
-        const TAVILY_API_KEY = import.meta.env.VITE_TAVILY_API_KEY;
-        if (!TAVILY_API_KEY) {
-          setError('Tavily API key not found.');
+      try {
+        console.log(`Searching for news in ${city}`);
+        const searchResponse = await fetch("/api/tavily/search", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            query: `local news in ${city}`,
+            search_depth: "advanced",
+            include_answer: false,
+            include_images: true,
+            max_results: 5, // Fetch 5 to avoid excessive extract calls
+          }),
+        });
+
+        const searchData = await searchResponse.json();
+        if (
+          !searchResponse.ok ||
+          !searchData.results ||
+          searchData.results.length === 0
+        ) {
+          setError(searchData.error || "No news articles found for your area.");
           setLoading(false);
           return;
         }
 
-        try {
-          console.log(`Searching for news in ${city}`);
-          const searchResponse = await fetch('/api/search', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${TAVILY_API_KEY}`
-            },
-            body: JSON.stringify({
-              query: `local news in ${city}`,
-              search_depth: 'advanced',
-              include_answer: false,
-              include_images: true,
-              include_raw_content: false,
-              max_results: 5, // Fetch 5 to avoid excessive extract calls
-              topic: 'news',
-            }),
-          });
-
-          const searchData = await searchResponse.json();
-          if (!searchResponse.ok || !searchData.results || searchData.results.length === 0) {
-            setError(searchData.error || 'No news articles found for your area.');
-            setLoading(false);
-            return;
-          }
-
-          console.log('Extracting content from search results...');
-          const articlesWithFullContent = await Promise.all(
-            searchData.results.map(async (article: any) => {
-              try {
-                const extractResponse = await fetch('/api/extract', {
-                  method: 'POST',
-                  headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${TAVILY_API_KEY}`
-                  },
-                  body: JSON.stringify({ url: article.url }),
-                });
-                const extractData = await extractResponse.json();
-                if (extractResponse.ok && extractData.content) {
-                  return { ...article, content: extractData.content };
-                }
-                return article; // Return original article if extraction fails
-              } catch (extractError) {
-                console.error(`Failed to extract content for ${article.url}:`, extractError);
-                return article; // Return original article on error
+        console.log("Extracting content from search results...");
+        const articlesWithFullContent = await Promise.all(
+          searchData.results.map(async (article: NewsArticle) => {
+            try {
+              const extractResponse = await fetch("/api/tavily/extract", {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({ urls: [article.url] }),
+              });
+              const extractData = await extractResponse.json();
+              if (
+                extractResponse.ok &&
+                extractData.results &&
+                extractData.results.length > 0
+              ) {
+                return {
+                  ...article,
+                  content: extractData.results[0].raw_content,
+                };
               }
-            })
-          );
+              return article; // Return original article if extraction fails
+            } catch (extractError) {
+              console.error(
+                `Failed to extract content for ${article.url}:`,
+                extractError
+              );
+              return article; // Return original article on error
+            }
+          })
+        );
 
-          if (!isCancelled) {
-            setArticles(articlesWithFullContent);
-          }
-
-        } catch (err) {
-          if (!isCancelled) {
-            console.error('Failed to fetch news:', err);
-            setError('Failed to fetch news. Please check your connection and API key.');
-          }
-        } finally {
-          if (!isCancelled) {
-            setLoading(false);
-          }
+        if (!isCancelled) {
+          setArticles(articlesWithFullContent);
         }
-      };
+      } catch (err) {
+        if (!isCancelled) {
+          console.error("Failed to fetch news:", err);
+          setError(
+            "Failed to fetch news. Please check your connection and API key."
+          );
+        }
+      } finally {
+        if (!isCancelled) {
+          setLoading(false);
+        }
+      }
+    };
 
-      fetchNews();
+    fetchNews();
 
     // Cleanup function to run when the component unmounts or re-runs the effect
     return () => {
@@ -111,7 +115,11 @@ const NewsPage = () => {
 
   const renderContent = () => {
     if (loading) {
-      return <div className="text-center p-4">Fetching your location and local news...</div>;
+      return (
+        <div className="text-center p-4">
+          Fetching your location and local news...
+        </div>
+      );
     }
 
     if (error) {
@@ -119,7 +127,11 @@ const NewsPage = () => {
     }
 
     if (articles.length === 0) {
-        return <div className="text-center p-4">No news articles found for your current location.</div>;
+      return (
+        <div className="text-center p-4">
+          No news articles found for your current location.
+        </div>
+      );
     }
 
     return (
@@ -133,16 +145,24 @@ const NewsPage = () => {
             className="w-full max-w-4xl flex flex-col md:flex-row bg-card rounded-lg shadow-md hover:shadow-xl transition-shadow duration-200 ease-in-out overflow-hidden border border-border"
           >
             {article.image ? (
-              <img src={article.image} alt={article.title} className="w-full md:w-1/3 h-56 md:h-auto object-cover" />
+              <img
+                src={article.image}
+                alt={article.title}
+                className="w-full md:w-1/3 h-56 md:h-auto object-cover"
+              />
             ) : (
               <div className="w-full md:w-1/3 h-56 md:h-auto bg-muted flex items-center justify-center">
-                <span className="text-muted-foreground text-sm">No Image Available</span>
+                <span className="text-muted-foreground text-sm">
+                  No Image Available
+                </span>
               </div>
             )}
             <div className="p-5 flex flex-col flex-grow">
-              <h3 className="font-semibold text-xl mb-3 text-foreground flex-grow">{article.title}</h3>
+              <h3 className="font-semibold text-xl mb-3 text-foreground flex-grow">
+                {article.title}
+              </h3>
               <p className="text-sm text-muted-foreground mt-auto pt-2">
-                {new URL(article.url).hostname.replace('www.', '')}
+                {new URL(article.url).hostname.replace("www.", "")}
               </p>
             </div>
           </a>
@@ -156,12 +176,9 @@ const NewsPage = () => {
       <header className="flex items-center justify-between p-4 bg-card shadow-sm border-b border-border">
         <h1 className="text-xl font-semibold text-foreground">Local News</h1>
       </header>
-      <div className="flex-1 overflow-y-auto">
-        {renderContent()}
-      </div>
+      <div className="flex-1 overflow-y-auto">{renderContent()}</div>
     </div>
   );
 };
 
 export default NewsPage;
-

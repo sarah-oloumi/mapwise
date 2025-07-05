@@ -987,7 +987,8 @@ WEB SEARCH: You now have access to real-time web search capabilities using the w
     }
   });
 
-  app.get("/{*any}", async (req, res, next) => {
+  // Catch-all route for SPA - must be last
+  app.get(/^(?!\/api).*$/, async (req, res, next) => {
     const url = req.originalUrl;
     try {
       const template = await vite.transformIndexHtml(
