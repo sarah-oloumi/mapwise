@@ -6,7 +6,7 @@ Mapwise is a web application that enables users to search for nearby places usin
 - **Voice Query:** Press a button and speak your request.
 - **Speech-to-Text:** Converts your spoken query to text using OpenAI APIs.
 - **Intent Extraction:** Uses OpenAI APIs to understand the intent of your query.
-- **Nearby Search:** Finds relevant places nearby using the Google Maps API.
+- **Nearby Search:** Finds relevant places nearby using the Google Maps API, and displays live results in the 'Nearby' tab (shops and restaurants are shown based on your location).
 - **Text-to-Speech:** Speaks the result back to you for a hands-free experience.
 
 ## How It Works
@@ -43,6 +43,12 @@ Configure your API keys as needed (see `.env.example` or configuration section).
 - Press the microphone button and speak your query.
 - Wait for the app to process and present the results.
 - Listen as the app reads the results back to you.
+
+### Nearby Tab (Live Places)
+- The Nearby tab now shows real nearby places (shops and restaurants) using the Google Places API.
+- Your location is required for this feature to work. Grant location access in your browser.
+- Make sure your Google Maps API key in `.env` has Places API enabled and is not restricted for localhost development.
+- If you see errors or no results, check your API key restrictions and quota in the Google Cloud Console.
 
 ## License
 MIT
