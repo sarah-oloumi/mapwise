@@ -1,14 +1,29 @@
+// Types for session events
+interface SessionEvent {
+  timestamp: Date;
+  type: string;
+  direction: "incoming" | "outgoing";
+  data: Record<string, unknown>;
+}
+
+interface EventLogCallback {
+  (event: SessionEvent): void;
+}
+
 // WebRTC Voice Session for Canadian AI Assistant
 export class WebRTCVoiceSession {
   private peerConnection: RTCPeerConnection | null = null;
   private dataChannel: RTCDataChannel | null = null;
   private audioElement: HTMLAudioElement | null = null;
   private isActive = false;
+  private sessionStartTime: Date | null = null;
+  private eventLog: SessionEvent[] = [];
 
   constructor(
     private onSessionStart: () => void,
     private onSessionEnd: () => void,
-    private onError: (error: Error) => void
+    private onError: (error: Error) => void,
+    private onEventLog?: EventLogCallback
   ) {}
 
   async startSession(userLocation?: { latitude: number; longitude: number }) {
@@ -115,25 +130,65 @@ export class WebRTCVoiceSession {
     return this.isActive;
   }
 
-  private sendClientEvent(message: Record<string, any>) {
-    if (this.dataChannel) {
-      const timestamp = new Date().toLocaleTimeString();
-      message.event_id = message.event_id || crypto.randomUUID();
+  // Log session events
+  private logEvent(
+    type: string,
+    direction: "incoming" | "outgoing",
+    data: Record<string, unknown>
+  ) {
+    const event: SessionEvent = {
+      timestamp: new Date(),
+      type,
+      direction,
+      data,
+    };
 
-      this.dataChannel.send(JSON.stringify(message));
+    this.eventLog.push(event);
 
-      if (!message.timestamp) {
-        message.timestamp = timestamp;
-      }
-    } else {
-      console.error(
-        "Failed to send message - no data channel available",
-        message
-      );
+    // Enhanced console logging
+    const timeStr = event.timestamp.toLocaleTimeString();
+    const directionIcon = direction === "incoming" ? "⬇️" : "⬆️";
+    console.log(`${directionIcon} [${timeStr}] ${type}:`, data);
+
+    // Call the callback if provided
+    if (this.onEventLog) {
+      this.onEventLog(event);
     }
   }
 
-  private sendTextMessage(message: string) {
+  // Get session statistics
+  getSessionStats() {
+    if (!this.sessionStartTime) return null;
+
+    const duration = Date.now() - this.sessionStartTime.getTime();
+    const eventCounts = this.eventLog.reduce((acc, event) => {
+      acc[event.type] = (acc[event.type] || 0) + 1;
+      return acc;
+    }, {} as Record<string, number>);
+
+    return {
+      startTime: this.sessionStartTime,
+      duration,
+      totalEvents: this.eventLog.length,
+      eventCounts,
+      lastEvent: this.eventLog[this.eventLog.length - 1],
+    };
+  }
+
+  // Get event log
+  getEventLog() {
+    return [...this.eventLog];
+  }
+
+  // Send text message (public method)
+  sendTextMessage(message: string) {
+    if (!this.isActive) {
+      console.warn(
+        "⚠️ [SESSION] Cannot send text message - session not active"
+      );
+      return;
+    }
+
     const event = {
       type: "conversation.item.create",
       item: {
@@ -148,13 +203,35 @@ export class WebRTCVoiceSession {
       },
     };
 
+    this.logEvent("text_message_sent", "outgoing", { message });
     this.sendClientEvent(event);
     this.sendClientEvent({ type: "response.create" });
   }
 
+  private sendClientEvent(message: Record<string, unknown>) {
+    if (this.dataChannel) {
+      const timestamp = new Date().toLocaleTimeString();
+      message.event_id = message.event_id || crypto.randomUUID();
+
+      // Log outgoing event
+      this.logEvent((message.type as string) || "unknown", "outgoing", message);
+
+      this.dataChannel.send(JSON.stringify(message));
+
+      if (!message.timestamp) {
+        message.timestamp = timestamp;
+      }
+    } else {
+      console.error(
+        "Failed to send message - no data channel available",
+        message
+      );
+    }
+  }
+
   private async handleFunctionCall(
     functionName: string,
-    functionArgs: Record<string, any>,
+    functionArgs: Record<string, unknown>,
     callId: string,
     userLocation?: { latitude: number; longitude: number }
   ) {
@@ -183,19 +260,27 @@ export class WebRTCVoiceSession {
           const searchLocation = location || userLocation;
           console.log("📍 [FRONTEND] Using location:", searchLocation);
 
-          result = await this.searchPlaces(query, searchLocation, radius);
+          result = await this.searchPlaces(
+            query as string,
+            searchLocation,
+            radius as number
+          );
           break;
         }
 
         case "get_place_details": {
           const { place_id } = functionArgs;
-          result = await this.getPlaceDetails(place_id);
+          result = await this.getPlaceDetails(place_id as string);
           break;
         }
 
         case "get_directions": {
           const { origin, destination, mode } = functionArgs;
-          result = await this.getDirections(origin, destination, mode);
+          result = await this.getDirections(
+            origin as string,
+            destination as string,
+            mode as string
+          );
           break;
         }
 
