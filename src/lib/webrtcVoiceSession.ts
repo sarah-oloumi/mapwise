@@ -1,20 +1,41 @@
+// Types for session events
+interface SessionEvent {
+  timestamp: Date;
+  type: string;
+  direction: "incoming" | "outgoing";
+  data: Record<string, unknown>;
+}
+
+interface EventLogCallback {
+  (event: SessionEvent): void;
+}
+
 // WebRTC Voice Session for Canadian AI Assistant
 export class WebRTCVoiceSession {
   private peerConnection: RTCPeerConnection | null = null;
   private dataChannel: RTCDataChannel | null = null;
   private audioElement: HTMLAudioElement | null = null;
   private isActive = false;
+  private sessionStartTime: Date | null = null;
+  private eventLog: SessionEvent[] = [];
 
   constructor(
     private onSessionStart: () => void,
     private onSessionEnd: () => void,
-    private onError: (error: Error) => void
+    private onError: (error: Error) => void,
+    private onEventLog?: EventLogCallback
   ) {}
 
   async startSession(userLocation?: { latitude: number; longitude: number }) {
     if (this.isActive) return;
 
     try {
+      this.sessionStartTime = new Date();
+      this.eventLog = [];
+      console.log(
+        "🚀 [SESSION] Starting Canadian AI session at",
+        this.sessionStartTime.toISOString()
+      );
       // Get a session token for OpenAI Realtime API with location context
       const tokenResponse = await fetch("/token", {
         method: "POST",
@@ -56,6 +77,9 @@ export class WebRTCVoiceSession {
       this.dataChannel.addEventListener("message", (e) => {
         const event = JSON.parse(e.data);
         console.log("📨 [FRONTEND] Received event:", event.type, event);
+
+        // Log the event
+        this.logEvent(event.type, "incoming", event);
 
         // Handle different types of function call events from the AI
         if (event.type === "response.function_call_arguments.done") {
@@ -209,25 +233,65 @@ export class WebRTCVoiceSession {
     return this.isActive;
   }
 
-  private sendClientEvent(message: Record<string, unknown>) {
-    if (this.dataChannel) {
-      const timestamp = new Date().toLocaleTimeString();
-      message.event_id = message.event_id || crypto.randomUUID();
+  // Log session events
+  private logEvent(
+    type: string,
+    direction: "incoming" | "outgoing",
+    data: Record<string, unknown>
+  ) {
+    const event: SessionEvent = {
+      timestamp: new Date(),
+      type,
+      direction,
+      data,
+    };
 
-      this.dataChannel.send(JSON.stringify(message));
+    this.eventLog.push(event);
 
-      if (!message.timestamp) {
-        message.timestamp = timestamp;
-      }
-    } else {
-      console.error(
-        "Failed to send message - no data channel available",
-        message
-      );
+    // Enhanced console logging
+    const timeStr = event.timestamp.toLocaleTimeString();
+    const directionIcon = direction === "incoming" ? "⬇️" : "⬆️";
+    console.log(`${directionIcon} [${timeStr}] ${type}:`, data);
+
+    // Call the callback if provided
+    if (this.onEventLog) {
+      this.onEventLog(event);
     }
   }
 
-  private sendTextMessage(message: string) {
+  // Get session statistics
+  getSessionStats() {
+    if (!this.sessionStartTime) return null;
+
+    const duration = Date.now() - this.sessionStartTime.getTime();
+    const eventCounts = this.eventLog.reduce((acc, event) => {
+      acc[event.type] = (acc[event.type] || 0) + 1;
+      return acc;
+    }, {} as Record<string, number>);
+
+    return {
+      startTime: this.sessionStartTime,
+      duration,
+      totalEvents: this.eventLog.length,
+      eventCounts,
+      lastEvent: this.eventLog[this.eventLog.length - 1],
+    };
+  }
+
+  // Get event log
+  getEventLog() {
+    return [...this.eventLog];
+  }
+
+  // Send text message (public method)
+  sendTextMessage(message: string) {
+    if (!this.isActive) {
+      console.warn(
+        "⚠️ [SESSION] Cannot send text message - session not active"
+      );
+      return;
+    }
+
     const event = {
       type: "conversation.item.create",
       item: {
@@ -242,8 +306,30 @@ export class WebRTCVoiceSession {
       },
     };
 
+    this.logEvent("text_message_sent", "outgoing", { message });
     this.sendClientEvent(event);
     this.sendClientEvent({ type: "response.create" });
+  }
+
+  private sendClientEvent(message: Record<string, unknown>) {
+    if (this.dataChannel) {
+      const timestamp = new Date().toLocaleTimeString();
+      message.event_id = message.event_id || crypto.randomUUID();
+
+      // Log outgoing event
+      this.logEvent((message.type as string) || "unknown", "outgoing", message);
+
+      this.dataChannel.send(JSON.stringify(message));
+
+      if (!message.timestamp) {
+        message.timestamp = timestamp;
+      }
+    } else {
+      console.error(
+        "Failed to send message - no data channel available",
+        message
+      );
+    }
   }
 
   private async handleFunctionCall(

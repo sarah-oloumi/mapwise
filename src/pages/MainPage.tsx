@@ -1,8 +1,17 @@
 import { useState, useRef, useEffect } from "react";
 import VoiceButton from "@/components/VoiceButton";
 import { WebRTCVoiceSession, getUserLocation } from "@/lib/webrtcVoiceSession";
-import { Search, MapPin, Loader2 } from "lucide-react";
+import {
+  Search,
+  MapPin,
+  Loader2,
+  Send,
+  Coffee,
+  Navigation,
+  MapPinIcon,
+} from "lucide-react";
 import Map from "@/components/Map";
+import SessionLogger from "@/components/SessionLogger";
 
 const MainPage = () => {
   const [isSessionActive, setIsSessionActive] = useState(false);
@@ -13,6 +22,16 @@ const MainPage = () => {
     longitude: number;
   } | null>(null);
   const [locationError, setLocationError] = useState<string | null>(null);
+  const [textInput, setTextInput] = useState<string>("");
+  const [eventLog, setEventLog] = useState<
+    Array<{
+      timestamp: Date;
+      type: string;
+      direction: "incoming" | "outgoing";
+      data: Record<string, unknown>;
+    }>
+  >([]);
+  const [showSessionLogger, setShowSessionLogger] = useState<boolean>(false);
   const sessionRef = useRef<WebRTCVoiceSession | null>(null);
 
   // Get user location on component mount
@@ -52,6 +71,9 @@ const MainPage = () => {
         setIsSessionActive(false);
         setIsConnecting(false);
         setLastResponse("Error starting voice session: " + err.message);
+      },
+      (event) => {
+        setEventLog((prev) => [...prev, event]);
       }
     );
 
@@ -68,6 +90,26 @@ const MainPage = () => {
       sessionRef.current.stopSession();
       setIsSessionActive(false);
       setIsConnecting(false);
+    }
+  };
+
+  const handleSendText = () => {
+    if (sessionRef.current && textInput.trim()) {
+      sessionRef.current.sendTextMessage(textInput.trim());
+      setTextInput("");
+    }
+  };
+
+  const handleQuickAction = (message: string) => {
+    if (sessionRef.current) {
+      sessionRef.current.sendTextMessage(message);
+    }
+  };
+
+  const handleKeyPress = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleSendText();
     }
   };
 
@@ -111,6 +153,74 @@ const MainPage = () => {
         </div>
       )}
 
+      {/* Quick Actions */}
+      {isSessionActive && (
+        <div className="mx-4 mb-4">
+          <div className="bg-card rounded-xl p-4 shadow-md border border-primary/20">
+            <h3 className="text-sm font-medium text-foreground mb-3">
+              Quick Actions
+            </h3>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={() => handleQuickAction("Find Tim Hortons nearby")}
+                className="flex items-center space-x-2 p-2 bg-primary/10 rounded-lg hover:bg-primary/20 transition-colors"
+              >
+                <Coffee className="w-4 h-4 text-primary" />
+                <span className="text-sm text-foreground">Tim Hortons</span>
+              </button>
+              <button
+                onClick={() => handleQuickAction("Show me restaurants nearby")}
+                className="flex items-center space-x-2 p-2 bg-primary/10 rounded-lg hover:bg-primary/20 transition-colors"
+              >
+                <MapPinIcon className="w-4 h-4 text-primary" />
+                <span className="text-sm text-foreground">Restaurants</span>
+              </button>
+              <button
+                onClick={() => handleQuickAction("Find gas stations nearby")}
+                className="flex items-center space-x-2 p-2 bg-primary/10 rounded-lg hover:bg-primary/20 transition-colors"
+              >
+                <Navigation className="w-4 h-4 text-primary" />
+                <span className="text-sm text-foreground">Gas Stations</span>
+              </button>
+              <button
+                onClick={() =>
+                  handleQuickAction("What's interesting around here?")
+                }
+                className="flex items-center space-x-2 p-2 bg-primary/10 rounded-lg hover:bg-primary/20 transition-colors"
+              >
+                <Search className="w-4 h-4 text-primary" />
+                <span className="text-sm text-foreground">Explore</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Text Input */}
+      {isSessionActive && (
+        <div className="mx-4 mb-4">
+          <div className="bg-card rounded-xl p-4 shadow-md border border-primary/20">
+            <div className="flex space-x-2">
+              <input
+                type="text"
+                value={textInput}
+                onChange={(e) => setTextInput(e.target.value)}
+                onKeyPress={handleKeyPress}
+                placeholder="Type your message here..."
+                className="flex-1 px-3 py-2 bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50 text-foreground placeholder-muted-foreground"
+              />
+              <button
+                onClick={handleSendText}
+                disabled={!textInput.trim()}
+                className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                <Send className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Voice Interaction */}
       <div className="p-6 bg-card border-t border-border">
         <div className="flex flex-col items-center space-y-4">
@@ -136,20 +246,28 @@ const MainPage = () => {
               <div className="text-center">
                 <p className="text-sm font-medium text-foreground">
                   {isSessionActive
-                    ? "Ask about your surroundings"
+                    ? "Voice chat active - use text input above or speak"
                     : isConnecting
                     ? "Connecting to Canadian AI..."
                     : "Tap to start voice assistant"}
                 </p>
                 <p className="text-xs text-muted-foreground mt-1">
-                  "Find Tim Hortons nearby" • "What's that building?" • "Show me
-                  restaurants"
+                  {isSessionActive
+                    ? "Try the quick actions or type your questions"
+                    : '"Find Tim Hortons nearby" • "What\'s that building?" • "Show me restaurants"'}
                 </p>
               </div>
             </>
           )}
         </div>
       </div>
+
+      {/* Session Logger */}
+      <SessionLogger
+        events={eventLog}
+        isVisible={showSessionLogger}
+        onToggle={() => setShowSessionLogger(!showSessionLogger)}
+      />
     </div>
   );
 };
