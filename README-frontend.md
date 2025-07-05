@@ -60,6 +60,12 @@ This project is built with:
 - shadcn-ui
 - Tailwind CSS
 
+## Nearby Tab (Live Places)
+
+The Nearby tab now shows live nearby places (shops and restaurants) using the Google Places API, based on your current location. You must allow browser location access for this feature to work. Your Google Maps API key (with Places API enabled) must be set in `.env` as `VITE_GOOGLE_MAPS_API_KEY`.
+
+If you see errors or no results, check your API key restrictions and quota in the Google Cloud Console.
+
 ## How can I deploy this project?
 
 Simply open [Lovable](https://lovable.dev/projects/dd5e907f-79c4-452c-afa7-3f6e426e7c1a) and click on Share -> Publish.

@@ -3,7 +3,7 @@ import VoiceButton from "@/components/VoiceButton";
 import { Search } from "lucide-react";
 import Map from "@/components/Map";
 
-const MainPage = () => {
+const MapPage = () => {
   const [isRecording, setIsRecording] = useState(false);
   const [lastResponse, setLastResponse] = useState<string>("");
 
@@ -66,4 +66,4 @@ const MainPage = () => {
   );
 };
 
-export default MainPage;
+export default MapPage;

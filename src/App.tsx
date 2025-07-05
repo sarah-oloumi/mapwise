@@ -3,7 +3,7 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
-import MainPage from "./pages/MainPage";
+import MapPage from "./pages/MainPage";
 import NearbyPage from "./pages/NearbyPage";
 import NewsPage from "./pages/NewsPage";
 import ProfilePage from "./pages/ProfilePage";
@@ -20,7 +20,7 @@ const App = () => (
       <BrowserRouter>
         <div className="relative min-h-screen bg-background">
           <Routes>
-            <Route path="/" element={<MainPage />} />
+            <Route path="/" element={<MapPage />} />
             <Route path="/nearby" element={<NearbyPage />} />
             <Route path="/news" element={<NewsPage />} />
             <Route path="/profile" element={<ProfilePage />} />

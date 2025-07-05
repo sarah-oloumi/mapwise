@@ -3,7 +3,7 @@ import { MapPin, Navigation, Newspaper, User } from "lucide-react";
 
 const BottomNavigation = () => {
   const navItems = [
-    { to: "/", icon: MapPin, label: "Main" },
+    { to: "/", icon: MapPin, label: "Map" },
     { to: "/nearby", icon: Navigation, label: "Nearby" },
     { to: "/news", icon: Newspaper, label: "News" },
     { to: "/profile", icon: User, label: "Profile" },
